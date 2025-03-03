@@ -31,17 +31,29 @@ def filter_files(path):
     return True
 
 
+# @NewAuthor starts
+from draw.utils.mapping import get_model_maps
+def getUpdated_PROTOCOL_TO_MODEL(data_path):
+    NEW_ALL_SEG_MAP, NEW_PROTOCOL_TO_MODEL = get_model_maps(data_path)
+    print(NEW_PROTOCOL_TO_MODEL)
+    return NEW_PROTOCOL_TO_MODEL
+# @NewAuthor ends
+
+
 def determine_model(dir_path):
     model_name = None
+    PROTOCOL_TO_MODEL = getUpdated_PROTOCOL_TO_MODEL(dir_path) #@NewAuthor ADDED
 
+    
     try:
-        one_file_name = glob.glob(os.path.join(dir_path, DCM_REGEX), recursive=True)[0]
-        ds = dcmread(one_file_name)
-        dcm_protocol_name = ds.ProtocolName.lower()
-        for protocol, model in PROTOCOL_TO_MODEL.items():
-            if protocol in dcm_protocol_name:
-                model_name = model
-                break
+        model_name = list(PROTOCOL_TO_MODEL.values())[0]
+        # one_file_name = glob.glob(os.path.join(dir_path, DCM_REGEX), recursive=True)[0]
+        # ds = dcmread(one_file_name)
+        # dcm_protocol_name = ds.ProtocolName.lower()
+        # for protocol, model in PROTOCOL_TO_MODEL.items():
+        #     if protocol in dcm_protocol_name:
+        #         model_name = model
+        #         break
 
     except IndexError:
         LOG.error(f"No DCM found. Probably spurious event", exc_info=True)
@@ -82,7 +94,6 @@ def on_moved(event: FileSystemEvent):
         modification_event_trigger(event.dest_path)  # Handle the new location
 
 
-
 def modification_event_trigger(src_path: str):
     LOG.info(f"MODIFIED {src_path}")
 
@@ -110,6 +121,7 @@ def modification_event_trigger(src_path: str):
             )
             DBConnection.enqueue([dcm])
         else:
+            print(model_name)
             LOG.warning(f"SRC {src_path} not processed as no Valid model found")
 
     except IndexError:
@@ -144,8 +156,14 @@ def task_watch_dir():
     ignore_patterns = None
     ignore_directories = False
     case_sensitive = True
+    # my_event_handler = PatternMatchingEventHandler(
+    #     patterns, ignore_patterns, ignore_directories, case_sensitive
+    # )
     my_event_handler = PatternMatchingEventHandler(
-        patterns, ignore_patterns, ignore_directories, case_sensitive
+    patterns=patterns, 
+    ignore_patterns=ignore_patterns, 
+    ignore_directories=ignore_directories, 
+    case_sensitive=case_sensitive
     )
     my_event_handler.on_modified = on_modified
     my_event_handler.on_deleted = on_deleted
