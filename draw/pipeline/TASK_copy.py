@@ -31,36 +31,16 @@ def filter_files(path):
     return True
 
 
-# @NewAuthor starts
-from draw.utils.mapping import get_model_maps
-def getUpdated_PROTOCOL_TO_MODEL(data_path):
-    NEW_ALL_SEG_MAP, NEW_PROTOCOL_TO_MODEL = get_model_maps(data_path)
-    return NEW_PROTOCOL_TO_MODEL
-# @NewAuthor ends
-
-
 def determine_model(dir_path):
     model_name = None
-    PROTOCOL_TO_MODEL = getUpdated_PROTOCOL_TO_MODEL(dir_path) #@NewAuthor ADDED
 
-    print("PROTOCOL_TO_MODEL")
-    print(PROTOCOL_TO_MODEL)
-    print("END\n\n")
     try:
         one_file_name = glob.glob(os.path.join(dir_path, DCM_REGEX), recursive=True)[0]
         ds = dcmread(one_file_name)
         dcm_protocol_name = ds.ProtocolName.lower()
         for protocol, model in PROTOCOL_TO_MODEL.items():
-            # print("protocol")
-            # print(protocol)
-            # print("END\n\n")
-            # print("model")
-            # print(model)
-            # print("END\n\n")
-            # print("dcm_protocol_name: ", dcm_protocol_name, "\n\n")
             if protocol in dcm_protocol_name:
                 model_name = model
-                # print("model_name: ", model_name, "\n\n")
                 break
 
     except IndexError:
@@ -81,6 +61,26 @@ def on_modified(event: FileSystemEvent):
         and not event.is_synthetic
     ):
         modification_event_trigger(event.src_path)
+
+def on_created(event: FileSystemEvent):
+    src_path = Path(event.src_path)
+    if (
+        event.is_directory
+        and src_path.resolve() != REDUNDANT_EVENT_PATH
+        and not event.is_synthetic
+    ):
+        modification_event_trigger(event.src_path)
+
+def on_moved(event: FileSystemEvent):
+    src_path = Path(event.src_path)
+    if (
+        event.is_directory
+        and src_path.resolve() != REDUNDANT_EVENT_PATH
+        and not event.is_synthetic
+    ):
+        LOG.info(f"MOVED {src_path} to {event.dest_path}")
+        modification_event_trigger(event.dest_path)  # Handle the new location
+
 
 
 def modification_event_trigger(src_path: str):
@@ -144,17 +144,13 @@ def task_watch_dir():
     ignore_patterns = None
     ignore_directories = False
     case_sensitive = True
-    # my_event_handler = PatternMatchingEventHandler(
-    #     patterns, ignore_patterns, ignore_directories, case_sensitive
-    # )
     my_event_handler = PatternMatchingEventHandler(
-    patterns=patterns, 
-    ignore_patterns=ignore_patterns, 
-    ignore_directories=ignore_directories, 
-    case_sensitive=case_sensitive
+        patterns, ignore_patterns, ignore_directories, case_sensitive
     )
     my_event_handler.on_modified = on_modified
     my_event_handler.on_deleted = on_deleted
+    my_event_handler.on_moved = on_moved
+    my_event_handler.on_created = on_created
     path = os.path.normpath(DICOM_WATCH_DIR)
 
     LOG.info(f"Started watching {path} for modifications")
