@@ -1,3 +1,6 @@
 [submodule "data/nnunet_results"]
 	path = data/nnunet_results
 	url = git@hf.co:CHAVI-India/draw-all-model
+[submodule "data/nnUNet_results"]
+	path = data/nnUNet_results
+	url = git@hf.co:CHAVI-India/draw-all-model
