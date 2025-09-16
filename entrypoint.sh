@@ -1,15 +1,55 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-echo "=== nnUNet Autosegmentation Job Started ==="
-echo "Job parameters:"
-echo "  Input S3 Path: ${inputS3Path}"          # ← Gets real value
-echo "  Output S3 Path: ${outputS3Path}"        # ← Gets real value
-echo "  Series Instance UID: ${seriesInstanceUID}"
-echo "  Study Instance UID: ${studyInstanceUID}"
-echo "  Patient ID: ${patientID}"
-echo "  Transaction Token: ${transactionToken}"
-echo "  File Upload ID: ${fileUploadId}"
+# Function to validate required environment variables
+validate_env() {
+    local required_vars=(
+        "inputS3Path"
+        "outputS3Path"
+        "seriesInstanceUID"
+        "studyInstanceUID"
+        "patientID"
+        "transactionToken"
+        "fileUploadId"
+    )
+    
+    local missing_vars=()
+    for var in "${required_vars[@]}"; do
+        if [[ -z "${!var:-}" ]]; then
+            missing_vars+=("$var")
+        fi
+    done
+    
+    if [[ ${#missing_vars[@]} -gt 0 ]]; then
+        echo "Error: Missing required environment variables: ${missing_vars[*]}" >&2
+        exit 1
+    fi
+
+    # Sanitize fileUploadId to prevent command injection
+    if [[ ! "${fileUploadId}" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        echo "Error: Invalid fileUploadId format" >&2
+        exit 1
+    fi
+}
+
+# Function to log messages with timestamp
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+# Main execution starts here
+log "=== nnUNet Autosegmentation Job Started ==="
+log "Validating environment variables..."
+validate_env
+
+log "Job parameters:"
+log "  Input S3 Path: ${inputS3Path}"
+log "  Output S3 Path: ${outputS3Path}"
+log "  Series Instance UID: ${seriesInstanceUID}"
+log "  Study Instance UID: ${studyInstanceUID}"
+log "  Patient ID: ${patientID}"
+log "  Transaction Token: ${transactionToken:0:4}...${transactionToken: -4}"  # Show partial token for security
+log "  File Upload ID: ${fileUploadId}"
 
 # Parse S3 URIs - works with real values
 parse_s3_uri() {
@@ -102,23 +142,38 @@ if screen -ls | grep -q "pipeline_session"; then
     echo "Pipeline is running in screen session"
 fi
 
-# Make a copy directory to copy the data from the AWS S3 endpoiont
+# Create necessary directories with proper permissions
+log "Creating working directories..."
+mkdir -p /home/draw/copy_dicom/files /home/draw/dicom
+chmod 755 /home/draw/copy_dicom /home/draw/dicom
 
-mkdir -p /home/draw/copy_dicom
+# Download DICOM zip from S3
+local_zip_path="/home/draw/copy_dicom/file_upload_${fileUploadId}_dicom.zip"
+log "Downloading DICOM zip from ${inputS3Path}..."
+if ! aws s3 cp "${inputS3Path}" "${local_zip_path}"; then
+    log "Error: Failed to download DICOM zip from S3" >&2
+    exit 1
+fi
 
-aws s3 cp "${inputS3Path}" "/home/draw/copy_dicom/"  
+# Verify zip file exists and is not empty
+if [[ ! -s "${local_zip_path}" ]]; then
+    log "Error: Downloaded DICOM zip is empty or not found" >&2
+    exit 1
+fi
 
-# The received file will have the name in the format file_upload_{file_upload_id}_dicom.zip
+# Extract the zip file
+log "Extracting DICOM zip..."
+if ! unzip -q "${local_zip_path}" -d "/home/draw/copy_dicom/files/"; then
+    log "Error: Failed to extract DICOM zip" >&2
+    exit 1
+fi
 
-# As this is a zip file we will need to extract the contents into a subfolder inside the copy_dicom directory
-
-
-unzip "/home/draw/copy_dicom/file_upload_${fileUploadId}_dicom.zip" -d "/home/draw/copy_dicom/files/" 
-
-
-# Move the contents of the files subdirectory to the watch directory
-
-mv /home/draw/copy_dicom/files/* /home/draw/dicom/
+# Move DICOM files to watch directory
+log "Moving DICOM files to watch directory..."
+if ! find /home/draw/copy_dicom/files -type f -exec mv {} /home/draw/dicom/ \;; then
+    log "Error: Failed to move DICOM files" >&2
+    exit 1
+fi
 
 
 # Wait for 60 seconds
@@ -198,16 +253,35 @@ else
     fi
 fi
 
-# Wait for 15 seconds before we copy the file back to the S3 output path and then exit
-
+# Wait briefly before final copy to ensure all writes are complete
+log "Waiting for 15 sec for final writes to complete..."
 sleep 15
 
-# Copy the file back to the S3 output path with a new name appending the file upload id to the file name
-aws s3 cp "/home/draw/output/AUTOSEGMENT.RT.dcm" "${outputS3Path}/AUTOSEGMENT.RT.${fileUploadId}.dcm" 
+# Define output file paths
+local_output_file="/home/draw/output/AUTOSEGMENT.RT.dcm"
+s3_output_path="${outputS3Path}/AUTOSEGMENT.RT.${fileUploadId}.dcm"
 
-# Log the successful retrieval
+# Verify output file exists and is not empty
+if [[ ! -s "${local_output_file}" ]]; then
+    log "Error: Output file is empty or not found" >&2
+    exit 1
+fi
 
-echo "Auto-segmentation file copied successfully to S3 output path"
+# Upload the result to S3
+log "Uploading result to ${s3_output_path}..."
+if ! aws s3 cp "${local_output_file}" "${s3_output_path}"; then
+    log "Error: Failed to upload result to S3" >&2
+    exit 1
+fi
 
-# Terminate the container after the file has been copied successfully
+# Verify the upload was successful
+if ! aws s3 ls "${s3_output_path}" &>/dev/null; then
+    log "Error: Failed to verify S3 upload" >&2
+    exit 1
+fi
+
+log "Auto-segmentation completed successfully"
+log "Result available at: ${s3_output_path}"
+
+# Exit with success
 exit 0
