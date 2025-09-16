@@ -1,6 +1,31 @@
 #!/bin/bash
 set -euo pipefail
 
+
+# Exit if not running as non-root user
+if [ "$(id -u)" -eq 0 ]; then
+    echo "Error: This script should not be run as root" >&2
+    exit 1
+fi
+
+# Function to clean up on exit
+cleanup() {
+    local exit_code=$?
+    log "Starting cleanup..."
+    
+    # Kill any background processes
+    pkill -P $$ || true
+    
+    # Clean up temporary files
+    rm -rf "/home/draw/copy_dicom"/* "$TEMP_DIR"
+    
+    log "Cleanup complete. Exiting with code $exit_code"
+    exit $exit_code
+}
+
+# Set up trap to call cleanup on script exit
+trap cleanup EXIT
+
 # Function to validate required environment variables
 validate_env() {
     local required_vars=(
@@ -32,9 +57,16 @@ validate_env() {
     fi
 }
 
-# Function to log messages with timestamp
+# Function to log messages with timestamp and log level
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    local level="${1:-INFO}"
+    local message="${2:-$1}"
+    if [ "$level" = "$message" ]; then
+        level="INFO"
+    else
+        shift
+    fi
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level^^}] $message"
 }
 
 # Main execution starts here
@@ -123,29 +155,44 @@ if [ $(ls -l /home/draw/data/nnUNet_results | grep -c ^d) -eq 0 ]; then
 fi
 
 
-# Start the pipeline in a detached screen session. 
+# Start the pipeline in the background
+log "Starting the pipeline..."
+{
+    source "$CONDA_PREFIX/etc/profile.d/conda.sh"
+    conda activate draw
+    python main.py start-pipeline
+} > "/home/draw/logs/pipeline.log" 2>&1 &
+PIPELINE_PID=$!
 
-screen -dmS python main.py start-pipeline
+# Function to check if pipeline is running
+check_pipeline_running() {
+    if ! kill -0 $PIPELINE_PID 2>/dev/null; then
+        log "Error: Pipeline process is not running"
+        log "Pipeline logs:"
+        cat "/home/draw/logs/pipeline.log"
+        return 1
+    fi
+    return 0
+}
 
-# Wait for 5 seconds before proceeding further
+# Wait for pipeline to start
+log "Waiting for pipeline to initialize..."
 sleep 5
 
-# Check if the pipeline is running. If not raise an error and exit
-# The terminal command is screen -ls | grep pipeline_session
-if ! screen -ls | grep -q "pipeline_session"; then
-    echo "Error: Failed to start the pipeline in screen session"
+if ! check_pipeline_running; then
     exit 1
 fi
 
-# If the pipeline is activated then log the message
-if screen -ls | grep -q "pipeline_session"; then
-    echo "Pipeline is running in screen session"
-fi
+log "Pipeline started successfully (PID: $PIPELINE_PID)"
 
-# Create necessary directories with proper permissions
-log "Creating working directories..."
-mkdir -p /home/draw/copy_dicom/files /home/draw/dicom
-chmod 755 /home/draw/copy_dicom /home/draw/dicom
+# Ensure directories exist with correct permissions
+log "Verifying working directories..."
+for dir in "/home/draw/copy_dicom" "/home/draw/dicom" "/home/draw/output" "/home/draw/logs"; do
+    if [ ! -d "$dir" ]; then
+        log "Error: Directory $dir does not exist" >&2
+        exit 1
+    fi
+done
 
 # Download DICOM zip from S3
 local_zip_path="/home/draw/copy_dicom/file_upload_${fileUploadId}_dicom.zip"
@@ -218,37 +265,37 @@ fi
 
 # If the folder move is detected the next step is to wait for the automatic segmentation to complete. 
 # Currently the most robust way to do that is to check for the file called AUTOSEGMENT.RT.dcm in the output folder. 
-# Again we run a loop for the next 15 min checking at 30 second intervals to see if the file is present. 
-# If the file is not present after 15 minutes then raise an error and exit.
+# Again we run a loop for the next 20 min checking at 30 second intervals to see if the file is present. 
+# If the file is not present after 20 minutes then raise an error and exit.
 
 echo "Waiting for auto-segmentation file to be created..."
 if command -v inotifywait &> /dev/null; then
     echo "Using inotifywait to monitor for file creation..."
-    if timeout 900 inotifywait -e create --format '%f' -q /home/draw/output/ | grep -q "AUTOSEGMENT.RT.dcm"; then
+    if timeout 1200 inotifywait -e create --format '%f' -q /home/draw/output/ | grep -q "AUTOSEGMENT.RT.dcm"; then
         echo "Auto-segmentation file found"
     else
         # Check if file exists in case it was created before inotify started watching
         if [ -f "/home/draw/output/AUTOSEGMENT.RT.dcm" ]; then
             echo "Auto-segmentation file found"
         else
-            echo "Error: Auto-segmentation file not found after 15 minutes of waiting"
+            echo "Error: Auto-segmentation file not found after 20 minutes of waiting"
             exit 1
         fi
     fi
 else
     echo "inotify-tools not available, falling back to polling..."
     auto_segment_file_found=false
-    for i in {1..15}; do
+    for i in {1..20}; do
         if [ -f /home/draw/output/AUTOSEGMENT.RT.dcm ]; then
             echo "Auto-segmentation file found"
             auto_segment_file_found=true
             break
         fi
         sleep 30
-        echo "Auto-segmentation file not found, retrying... ($i/15)"
+        echo "Auto-segmentation file not found, retrying... ($i/20)"
     done    
     if [ "$auto_segment_file_found" = false ]; then
-        echo "Error: Auto-segmentation file not found after 15 minutes of waiting"
+        echo "Error: Auto-segmentation file not found after 20 minutes of waiting"
         exit 1
     fi
 fi
