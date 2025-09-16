@@ -1,0 +1,26 @@
+name: myenv # This will become the name of your environment
+dependencies: # The list of packages to include in your environment
+    - python=3.12 # You can specify versions
+    - pip # Install pip in your environment
+    - torch
+    - torchaudio
+    - torchvision
+    - watchdog
+    - pip: # Include pip dependencies last
+        - awscli
+        - alembic
+        - click
+        - dcmrtstruct2nii
+        - git+https://github.com/Dutta-SD/nnunet_draw.git@draw_main
+        - nibabel
+        - numpy
+        - pandas
+        - pydicom
+        - PyYAML
+        - retry
+        - rt-utils
+        - schema
+        - simpleitk
+        - sqlalchemy
+        - boto3
+
