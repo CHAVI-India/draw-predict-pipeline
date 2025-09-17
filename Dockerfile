@@ -1,5 +1,5 @@
 # Use official NVIDIA CUDA runtime with Ubuntu 20.04 and cuDNN 8
-FROM nvcr.io/nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04
+FROM nvcr.io/nvidia/cuda:12.2.0-cudnn8-devel-ubuntu22.04
 
 # Arguments for user/group IDs
 ARG UID=1000
@@ -28,11 +28,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Miniconda
 RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh && \
+    chmod +x ~/miniconda.sh && \
     /bin/bash ~/miniconda.sh -b -p $CONDA_DIR && \
     rm ~/miniconda.sh && \
-    $CONDA_DIR/bin/conda clean -tipsy && \
-    ln -s $CONDA_DIR/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
-    echo ". $CONDA_DIR/etc/profile.d/conda.sh" >> ~/.bashrc
+    $CONDA_DIR/bin/conda init bash && \
+    $CONDA_DIR/bin/conda clean --all -y && \
+    echo "source $CONDA_DIR/etc/profile.d/conda.sh" >> ~/.bashrc && \
+    echo "conda activate base" >> ~/.bashrc && \
+    ln -s $CONDA_DIR/etc/profile.d/conda.sh /etc/profile.d/conda.sh
 
 # Create non-root user and set up environment with specific UID/GID
 RUN groupadd -r -g $GID $APP_USER && \
