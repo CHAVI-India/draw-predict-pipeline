@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-
+IFS=$'\n\t'
 
 # Exit if not running as non-root user
 if [ "$(id -u)" -eq 0 ]; then
@@ -134,9 +134,6 @@ else
 fi
 
 
-
-
-# Create the output directory if it does not exist. If it exists skip creation.
 # Delete the output directory if it exists and recreate it
 
 rm -rf /home/draw/output
@@ -180,7 +177,7 @@ log "Waiting for pipeline to initialize..."
 sleep 5
 
 if ! check_pipeline_running; then
-    exit 1
+    exit 1 # Logging happens in the function call.
 fi
 
 log "Pipeline started successfully (PID: $PIPELINE_PID)"
@@ -260,6 +257,8 @@ for i in {1..5}; do
 done    
 if [ "$dicom_recognized" = false ]; then
     echo "Error: DICOM data not recognized in the pipeline after 5 minutes of waiting"
+    echo "Contents of the log file:"
+    cat /home/draw/logs/logfile.log # Copy the contents of the log file.
     exit 1
 fi
 
@@ -279,6 +278,8 @@ if command -v inotifywait &> /dev/null; then
             echo "Auto-segmentation file found"
         else
             echo "Error: Auto-segmentation file not found after 20 minutes of waiting"
+            echo "Contents of the log file:"
+            cat /home/draw/logs/logfile.log # Copy the contents of the log file.
             exit 1
         fi
     fi
@@ -296,6 +297,8 @@ else
     done    
     if [ "$auto_segment_file_found" = false ]; then
         echo "Error: Auto-segmentation file not found after 20 minutes of waiting"
+        echo "Contents of the logfile:"
+        cat /home/draw/logs/logfile.log # Copy the contents of the log file.
         exit 1
     fi
 fi
@@ -329,6 +332,8 @@ fi
 
 log "Auto-segmentation completed successfully"
 log "Result available at: ${s3_output_path}"
+log "Pipeline log:"
+cat /home/draw/logs/pipeline.log
 
 # Exit with success
 exit 0
