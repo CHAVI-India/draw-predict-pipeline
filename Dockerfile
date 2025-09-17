@@ -1,5 +1,5 @@
-# Use NVIDIA CUDA base image
-FROM 13.0.1-cudnn-devel-ubuntu24.04
+# Use NVIDIA CUDA base image with Ubuntu 22.04 (LTS)
+FROM nvidia/cuda:12.2.0-cudnn8-devel-ubuntu22.04
 
 # Arguments for user/group IDs
 ARG UID=1000
