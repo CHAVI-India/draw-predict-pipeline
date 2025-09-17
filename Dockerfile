@@ -46,11 +46,12 @@ RUN groupadd -r -g $GID $APP_USER && \
              /home/draw/logs \
              /home/draw/dicom \
              /home/draw/copy_dicom \
-             /home/draw/draw/data \
-    && chown -R $APP_USER:$APP_USER /home/draw \
-    && chmod 755 /home/draw/* \
+             /home/draw/draw/data && \
+    chown -R $APP_USER:$APP_USER /home/draw && \
+    find /home/draw -type d -exec chmod 755 {} \; && \
     mkdir -p $EFS_MOUNT && \
-    chown -R $APP_USER:$APP_USER $EFS_MOUNT
+    chown -R $APP_USER:$APP_USER $EFS_MOUNT && \
+    chmod 755 $EFS_MOUNT
 
 # Set working directory and switch to non-root user
 WORKDIR $APP_HOME
