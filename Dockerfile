@@ -26,15 +26,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Miniconda
-RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh && \
-    chmod +x ~/miniconda.sh && \
-    /bin/bash ~/miniconda.sh -b -p $CONDA_DIR && \
-    rm ~/miniconda.sh && \
-    $CONDA_DIR/bin/conda init bash && \
+RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
+    chmod +x /tmp/miniconda.sh && \
+    /bin/bash /tmp/miniconda.sh -b -p $CONDA_DIR && \
+    rm /tmp/miniconda.sh && \
     $CONDA_DIR/bin/conda clean --all -y && \
-    echo "source $CONDA_DIR/etc/profile.d/conda.sh" >> ~/.bashrc && \
-    echo "conda activate base" >> ~/.bashrc && \
-    ln -s $CONDA_DIR/etc/profile.d/conda.sh /etc/profile.d/conda.sh
+    ln -s $CONDA_DIR/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
+    echo ". $CONDA_DIR/etc/profile.d/conda.sh" >> /etc/bash.bashrc && \
+    echo "conda activate base" >> /etc/bash.bashrc
 
 # Create non-root user and set up environment with specific UID
 # First try with specified GID, if that fails, use next available GID
@@ -45,6 +44,15 @@ RUN if ! groupadd -r -g $GID $APP_USER 2>/dev/null; then \
     if ! useradd -m -r -u $UID -g $APP_USER -d $APP_HOME -s /bin/bash $APP_USER 2>/dev/null; then \
         useradd -m -r -g $APP_USER -d $APP_HOME -s /bin/bash $APP_USER; \
     fi && \
+    # Set up conda for the non-root user
+    mkdir -p $APP_HOME/.conda && \
+    chown -R $APP_USER:$APP_USER $APP_HOME $CONDA_DIR && \
+    chmod -R 775 $CONDA_DIR && \
+    # Add conda to PATH for the non-root user
+    echo 'export PATH="$CONDA_DIR/bin:$PATH"' >> $APP_HOME/.bashrc && \
+    echo 'source $CONDA_DIR/etc/profile.d/conda.sh' >> $APP_HOME/.bashrc && \
+    echo 'conda activate base' >> $APP_HOME/.bashrc && \
+    # Fix permissions
     chown -R $APP_USER:$APP_USER $APP_HOME && \
     # Create required directories with proper permissions
     mkdir -p /home/draw/draw/data/nnUNet_results \
