@@ -19,7 +19,7 @@ dependencies: # The list of packages to include in your environment
         - simpleitk
         - sqlalchemy
         - boto3
-        - torch
+        - torch==2.0.0
         - torchaudio
         - torchvision
         - watchdog    
