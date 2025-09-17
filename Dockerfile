@@ -101,9 +101,16 @@ ENV PATH=$CONDA_PREFIX/bin:$PATH
 RUN mkdir -p /home/draw/logs /home/draw/output /home/draw/data/nnUNet_results /home/draw/data/nnunet_results && \
     chown -R $APP_USER:$APP_USER /home/draw/logs /home/draw/output /home/draw/data
 
-# Create entrypoint script
+# Switch to root to create entrypoint script
+USER root
+
+# Create entrypoint script with proper permissions
 RUN echo '#!/bin/bash\nset -e\n\n# Ensure EFS mount is writable by our user\nif [ -d "$EFS_MOUNT" ]; then\n    chown -R $APP_USER:$APP_USER "$EFS_MOUNT"\n    chmod 755 "$EFS_MOUNT"\nfi\n\n# Execute the main command\nexec "$@"' > /entrypoint.sh && \
-    chmod +x /entrypoint.sh
+    chmod 755 /entrypoint.sh && \
+    chown $APP_USER:$APP_USER /entrypoint.sh
+
+# Switch back to non-root user
+USER $APP_USER
 
 
 # Set the entrypoint and default command
