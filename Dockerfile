@@ -41,7 +41,10 @@ RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86
 RUN if ! groupadd -r -g $GID $APP_USER 2>/dev/null; then \
        groupadd -r $APP_USER; \
     fi && \
-    useradd -m -r -u $UID -g $APP_USER -d $APP_HOME -s /bin/bash $APP_USER && \
+    # Check if UID is already in use, if so use next available UID
+    if ! useradd -m -r -u $UID -g $APP_USER -d $APP_HOME -s /bin/bash $APP_USER 2>/dev/null; then \
+        useradd -m -r -g $APP_USER -d $APP_HOME -s /bin/bash $APP_USER; \
+    fi && \
     chown -R $APP_USER:$APP_USER $APP_HOME && \
     # Create required directories with proper permissions
     mkdir -p /home/draw/data/nnUNet_results \
