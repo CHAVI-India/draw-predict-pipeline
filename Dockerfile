@@ -139,11 +139,17 @@ RUN echo '#!/bin/bash\nset -e\n\n# Ensure EFS mount is writable by our user\nif 
 COPY environment.yml /tmp/
 # Create the conda environment
 RUN . $CONDA_DIR/etc/profile.d/conda.sh && \
+    # Initialize conda
+    conda init bash && \
     # Accept Terms of Service for default channels
     conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main && \
     conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r && \
     # Create the environment
     conda env create -f /tmp/environment.yml -n draw && \
+    # Activate the environment and set up paths
+    . $CONDA_DIR/etc/profile.d/conda.sh && \
+    conda activate draw && \
+    # Clean up
     conda clean --all -y && \
     rm /tmp/environment.yml && \
     # Initialize conda for the non-root user
