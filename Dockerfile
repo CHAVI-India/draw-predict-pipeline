@@ -41,9 +41,9 @@ RUN mkdir -p \
     $APP_HOME/draw/logs \
     $APP_HOME/draw/dicom \
     $APP_HOME/copy_dicom \
-    $APP_HOME/draw/bin \
-    find $APP_HOME -type d -exec chmod 755 {} \; && 
-    
+    $APP_HOME/draw/bin && \
+    find $APP_HOME -type d -exec chmod 755 {} \;
+
 # Switch to non-root user for Miniconda installation
 USER $APP_USER
 WORKDIR $APP_HOME
