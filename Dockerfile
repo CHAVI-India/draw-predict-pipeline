@@ -9,8 +9,8 @@ ARG GID=1000
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     CONDA_DIR=/home/draw/miniconda3 \
-    APP_USER=appuser \
-    APP_HOME=/app \
+    APP_USER=draw \
+    APP_HOME=/draw \
     EFS_MOUNT=/mnt/efs
 
 # Install system dependencies and clean up in one layer
