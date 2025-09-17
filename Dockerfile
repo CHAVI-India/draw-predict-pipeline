@@ -73,10 +73,13 @@ COPY --chown=$APP_USER:$APP_USER . $APP_HOME/
 
 # Create conda environment from environment.yml
 RUN . $CONDA_DIR/etc/profile.d/conda.sh && \
+    # Accept conda terms of service
+    $CONDA_DIR/bin/conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main && \
+    $CONDA_DIR/bin/conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r && \
     # Create the environment
-    conda env create -f $APP_HOME/environment.yml -n draw && \
+    $CONDA_DIR/bin/conda env create -f $APP_HOME/environment.yml -n draw && \
     # Clean up
-    conda clean --all -y && \
+    $CONDA_DIR/bin/conda clean --all -y && \
     # Initialize conda for the user
     echo "export PATH=$CONDA_DIR/bin:\$PATH" >> ~/.bashrc && \
     echo ". $CONDA_DIR/etc/profile.d/conda.sh" >> ~/.bashrc && \
