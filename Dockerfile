@@ -23,7 +23,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     inotify-tools \
     unzip \
     screen \
-    awscli \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Miniconda
