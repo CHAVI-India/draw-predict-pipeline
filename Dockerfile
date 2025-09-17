@@ -1,5 +1,5 @@
-# Use NVIDIA CUDA base image with Ubuntu 22.04 (LTS)
-FROM nvidia/cuda:12.2.0-cudnn8-devel-ubuntu22.04
+# Use official NVIDIA CUDA runtime with Ubuntu 20.04 and cuDNN 8
+FROM nvcr.io/nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04
 
 # Arguments for user/group IDs
 ARG UID=1000
