@@ -36,9 +36,12 @@ RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86
     echo "conda activate base" >> ~/.bashrc && \
     ln -s $CONDA_DIR/etc/profile.d/conda.sh /etc/profile.d/conda.sh
 
-# Create non-root user and set up environment with specific UID/GID
-RUN groupadd -r -g $GID $APP_USER && \
-    useradd -m -r -u $UID -g $GID -d $APP_HOME -s /bin/bash $APP_USER && \
+# Create non-root user and set up environment with specific UID
+# First try with specified GID, if that fails, use next available GID
+RUN if ! groupadd -r -g $GID $APP_USER 2>/dev/null; then \
+       groupadd -r $APP_USER; \
+    fi && \
+    useradd -m -r -u $UID -g $APP_USER -d $APP_HOME -s /bin/bash $APP_USER && \
     chown -R $APP_USER:$APP_USER $APP_HOME && \
     # Create required directories with proper permissions
     mkdir -p /home/draw/data/nnUNet_results \
