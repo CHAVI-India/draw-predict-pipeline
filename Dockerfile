@@ -42,10 +42,7 @@ RUN mkdir -p \
     $APP_HOME/draw/dicom \
     $APP_HOME/copy_dicom \
     $APP_HOME/draw/bin \
-    $EFS_MOUNT && \
-    chown -R $APP_USER:$APP_USER $APP_HOME $EFS_MOUNT && \
     find $APP_HOME -type d -exec chmod 755 {} \; && \
-    chmod 755 $EFS_MOUNT
 
 # Switch to non-root user for Miniconda installation
 USER $APP_USER
@@ -94,8 +91,7 @@ ENV CONDA_PREFIX=$CONDA_DIR/envs/$CONDA_DEFAULT_ENV
 USER root
 
 # Create entrypoint script with proper permissions
-RUN echo '#!/bin/bash\nset -e\n\n# Ensure EFS mount is writable by our user\nif [ -d "$EFS_MOUNT" ]; then\n    chown -R $APP_USER:$APP_USER "$EFS_MOUNT"\n    chmod 755 "$EFS_MOUNT"\nfi\n\n# Execute the main command\nexec "$@"' > /entrypoint.sh && \
-    chmod 755 /entrypoint.sh && \
+RUN chmod 755 /entrypoint.sh && \
     chown $APP_USER:$APP_USER /entrypoint.sh
 
 # Switch back to non-root user for runtime
