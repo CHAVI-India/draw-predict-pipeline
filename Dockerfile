@@ -130,10 +130,16 @@ RUN echo '#!/bin/bash\nset -e\n\n# Ensure EFS mount is writable by our user\nif 
     chmod 755 /entrypoint.sh && \
     chown $APP_USER:$APP_USER /entrypoint.sh
 
-# Switch back to non-root user
-USER $APP_USER
+# Create conda environment from environment.yml
+COPY environment.yml /tmp/
+RUN conda env create -f /tmp/environment.yml -n draw && \
+    conda clean --all -y && \
+    rm /tmp/environment.yml
 
+# Switch to non-root user
+USER $APP_USER
 
 # Set the entrypoint and default command
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["conda", "run", "--no-capture-output", "-n", "draw", "bash", "/home/draw/entrypoint.sh"]
+# The entrypoint script is already set up to run as the non-root user
+CMD ["bash"]
