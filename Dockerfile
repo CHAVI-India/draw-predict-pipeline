@@ -87,10 +87,11 @@ ENV PATH=$CONDA_DIR/envs/draw/bin:$PATH
 ENV CONDA_DEFAULT_ENV=draw
 ENV CONDA_PREFIX=$CONDA_DIR/envs/$CONDA_DEFAULT_ENV
 
-# Switch to root to create entrypoint script
+# Switch to root to handle entrypoint script
 USER root
 
-# Create entrypoint script with proper permissions
+# Copy entrypoint script and set proper permissions
+COPY entrypoint.sh /entrypoint.sh
 RUN chmod 755 /entrypoint.sh && \
     chown $APP_USER:$APP_USER /entrypoint.sh
 
