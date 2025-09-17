@@ -1,0 +1,9 @@
+aws/
+documentation/
+.gitignore
+.gitmodules
+.awscliv2.zip
+.github
+LICENSE
+README.md
+template.env.draw.yml

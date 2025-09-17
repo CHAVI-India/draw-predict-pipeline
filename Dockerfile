@@ -47,12 +47,12 @@ RUN if ! groupadd -r -g $GID $APP_USER 2>/dev/null; then \
     fi && \
     chown -R $APP_USER:$APP_USER $APP_HOME && \
     # Create required directories with proper permissions
-    mkdir -p /home/draw/data/nnUNet_results \
-             /home/draw/output \
-             /home/draw/logs \
-             /home/draw/dicom \
+    mkdir -p /home/draw/draw/data/nnUNet_results \
+             /home/draw/draw/output \
+             /home/draw/draw/logs \
+             /home/draw/draw/dicom \
              /home/draw/copy_dicom \
-             /home/draw/draw/data && \
+             /home/draw/draw/bin && \
     chown -R $APP_USER:$APP_USER /home/draw && \
     find /home/draw -type d -exec chmod 755 {} \; && \
     mkdir -p $EFS_MOUNT && \
@@ -91,8 +91,18 @@ ENV inputS3Path="" \
     transactionToken="" \
     fileUploadId=""
 
-# Copy application code
-COPY --chown=$APP_USER:$APP_USER . .
+# Copy specific application directories and files to /home/draw/draw/
+COPY --chown=$APP_USER:$APP_USER bin/ /home/draw/draw/bin/
+COPY --chown=$APP_USER:$APP_USER config_yaml/ /home/draw/draw/config_yaml/
+COPY --chown=$APP_USER:$APP_USER draw/ /home/draw/draw/draw/
+
+# Copy essential configuration files to /home/draw/draw/
+COPY --chown=$APP_USER:$APP_USER requirements.txt /home/draw/draw/
+COPY --chown=$APP_USER:$APP_USER environment.yml /home/draw/draw/
+COPY --chown=$APP_USER:$APP_USER env.draw.yml /home/draw/draw/
+COPY --chown=$APP_USER:$APP_USER alembic.ini /home/draw/draw/
+COPY --chown=$APP_USER:$APP_USER main.py /home/draw/draw/
+COPY --chown=$APP_USER:$APP_USER entrypoint.sh /home/draw/draw/
 
 # Switch to non-root user
 USER $APP_USER
@@ -103,9 +113,6 @@ ENV CONDA_DEFAULT_ENV=draw
 ENV CONDA_PREFIX=$CONDA_DIR/envs/$CONDA_DEFAULT_ENV
 ENV PATH=$CONDA_PREFIX/bin:$PATH
 
-# Create necessary directories with correct permissions
-RUN mkdir -p /home/draw/logs /home/draw/output /home/draw/data/nnUNet_results /home/draw/data/nnunet_results && \
-    chown -R $APP_USER:$APP_USER /home/draw/logs /home/draw/output /home/draw/data
 
 # Switch to root to create entrypoint script
 USER root

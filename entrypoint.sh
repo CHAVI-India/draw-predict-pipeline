@@ -126,7 +126,7 @@ alembic upgrade head
 # Check if the database is created successfully. The database is created as a mysqlite database called draw.db.sqlite in the data directory.
 # If the database is not created successfully then the container should show an error. Else log a message showing the successful creation.
 
-if [ ! -f /home/draw/data/draw.db.sqlite ]; then
+if [ ! -f /home/draw/draw/data/draw.db.sqlite ]; then
     echo "Database is not created successfully"
     exit 1
 else
@@ -136,17 +136,17 @@ fi
 
 # Delete the output directory if it exists and recreate it
 
-rm -rf /home/draw/output
-mkdir -p /home/draw/output
+rm -rf /home/draw/draw/output
+mkdir -p /home/draw/draw/output
 
 # Symlink the efs mount to the output directory
 
-ln -s /mnt/efs/nnUNet_results /home/draw/data/nnUNet_results
+ln -s /mnt/efs/nnUNet_results /home/draw/draw/data/nnUNet_results
 
 # Check if we can see models in the nnUNet directory. These will be subdirectories inside the nnUNet_results directory. 
 # If the number of subdirectories is 0 then raise and error and exit.
 
-if [ $(ls -l /home/draw/data/nnUNet_results | grep -c ^d) -eq 0 ]; then
+if [ $(ls -l /home/draw/draw/data/nnUNet_results | grep -c ^d) -eq 0 ]; then
     echo "No models found in the nnUNet_results directory"
     exit 1
 fi
@@ -158,7 +158,7 @@ log "Starting the pipeline..."
     source "$CONDA_PREFIX/etc/profile.d/conda.sh"
     conda activate draw
     python main.py start-pipeline
-} > "/home/draw/logs/pipeline.log" 2>&1 &
+} > "/home/draw/draw/logs/pipeline.log" 2>&1 &
 PIPELINE_PID=$!
 
 # Function to check if pipeline is running
@@ -166,7 +166,7 @@ check_pipeline_running() {
     if ! kill -0 $PIPELINE_PID 2>/dev/null; then
         log "Error: Pipeline process is not running"
         log "Pipeline logs:"
-        cat "/home/draw/logs/pipeline.log"
+        cat "/home/draw/draw/logs/pipeline.log"
         return 1
     fi
     return 0
@@ -184,7 +184,7 @@ log "Pipeline started successfully (PID: $PIPELINE_PID)"
 
 # Ensure directories exist with correct permissions
 log "Verifying working directories..."
-for dir in "/home/draw/copy_dicom" "/home/draw/dicom" "/home/draw/output" "/home/draw/logs"; do
+for dir in "/home/draw/copy_dicom" "/home/draw/draw/dicom" "/home/draw/draw/output" "/home/draw/draw/logs"; do
     if [ ! -d "$dir" ]; then
         log "Error: Directory $dir does not exist" >&2
         exit 1
@@ -214,7 +214,7 @@ fi
 
 # Move DICOM files to watch directory
 log "Moving DICOM files to watch directory..."
-if ! find /home/draw/copy_dicom/files -type f -exec mv {} /home/draw/dicom/ \;; then
+if ! find /home/draw/copy_dicom/files -type f -exec mv {} /home/draw/draw/dicom/ \;; then
     log "Error: Failed to move DICOM files" >&2
     exit 1
 fi
@@ -247,7 +247,7 @@ fi
 
 dicom_recognized=false
 for i in {1..5}; do
-    if grep -q "${copy_dicom}" /home/draw/logs/logfile.log; then
+    if grep -q "${copy_dicom}" /home/draw/draw/logs/logfile.log; then
         echo "DICOM data recognized"
         dicom_recognized=true
         break
@@ -258,7 +258,7 @@ done
 if [ "$dicom_recognized" = false ]; then
     echo "Error: DICOM data not recognized in the pipeline after 5 minutes of waiting"
     echo "Contents of the log file:"
-    cat /home/draw/logs/logfile.log # Copy the contents of the log file.
+    cat /home/draw/draw/logs/logfile.log # Copy the contents of the log file.
     exit 1
 fi
 
@@ -270,16 +270,16 @@ fi
 echo "Waiting for auto-segmentation file to be created..."
 if command -v inotifywait &> /dev/null; then
     echo "Using inotifywait to monitor for file creation..."
-    if timeout 1200 inotifywait -e create --format '%f' -q /home/draw/output/ | grep -q "AUTOSEGMENT.RT.dcm"; then
+    if timeout 1200 inotifywait -e create --format '%f' -q /home/draw/draw/output/ | grep -q "AUTOSEGMENT.RT.dcm"; then
         echo "Auto-segmentation file found"
     else
         # Check if file exists in case it was created before inotify started watching
-        if [ -f "/home/draw/output/AUTOSEGMENT.RT.dcm" ]; then
+        if [ -f "/home/draw/draw/output/AUTOSEGMENT.RT.dcm" ]; then
             echo "Auto-segmentation file found"
         else
             echo "Error: Auto-segmentation file not found after 20 minutes of waiting"
             echo "Contents of the log file:"
-            cat /home/draw/logs/logfile.log # Copy the contents of the log file.
+            cat /home/draw/draw/logs/logfile.log # Copy the contents of the log file.
             exit 1
         fi
     fi
@@ -287,7 +287,7 @@ else
     echo "inotify-tools not available, falling back to polling..."
     auto_segment_file_found=false
     for i in {1..20}; do
-        if [ -f /home/draw/output/AUTOSEGMENT.RT.dcm ]; then
+        if [ -f /home/draw/draw/output/AUTOSEGMENT.RT.dcm ]; then
             echo "Auto-segmentation file found"
             auto_segment_file_found=true
             break
@@ -298,7 +298,7 @@ else
     if [ "$auto_segment_file_found" = false ]; then
         echo "Error: Auto-segmentation file not found after 20 minutes of waiting"
         echo "Contents of the logfile:"
-        cat /home/draw/logs/logfile.log # Copy the contents of the log file.
+        cat /home/draw/draw/logs/logfile.log # Copy the contents of the log file.
         exit 1
     fi
 fi
