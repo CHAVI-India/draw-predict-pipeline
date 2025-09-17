@@ -30,10 +30,15 @@ RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86
     chmod +x /tmp/miniconda.sh && \
     /bin/bash /tmp/miniconda.sh -b -p $CONDA_DIR && \
     rm /tmp/miniconda.sh && \
+    # Initialize conda for the root user
+    $CONDA_DIR/bin/conda init bash && \
     $CONDA_DIR/bin/conda clean --all -y && \
+    # Make conda available system-wide
     ln -s $CONDA_DIR/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
-    echo ". $CONDA_DIR/etc/profile.d/conda.sh" >> /etc/bash.bashrc && \
-    echo "conda activate base" >> /etc/bash.bashrc
+    echo "export PATH=$CONDA_DIR/bin:$PATH" >> /etc/profile.d/conda.sh && \
+    # Initialize conda in the current shell
+    . $CONDA_DIR/etc/profile.d/conda.sh && \
+    conda config --set auto_activate_base false
 
 # Create non-root user and set up environment with specific UID
 # First try with specified GID, if that fails, use next available GID
@@ -132,9 +137,15 @@ RUN echo '#!/bin/bash\nset -e\n\n# Ensure EFS mount is writable by our user\nif 
 
 # Create conda environment from environment.yml
 COPY environment.yml /tmp/
-RUN conda env create -f /tmp/environment.yml -n draw && \
+# Create the conda environment
+RUN . $CONDA_DIR/etc/profile.d/conda.sh && \
+    conda env create -f /tmp/environment.yml -n draw && \
     conda clean --all -y && \
-    rm /tmp/environment.yml
+    rm /tmp/environment.yml && \
+    # Initialize conda for the non-root user
+    echo "export PATH=$CONDA_DIR/bin:$PATH" >> $APP_HOME/.bashrc && \
+    echo ". $CONDA_DIR/etc/profile.d/conda.sh" >> $APP_HOME/.bashrc && \
+    echo "conda activate draw" >> $APP_HOME/.bashrc
 
 # Switch to non-root user
 USER $APP_USER
