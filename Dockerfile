@@ -25,6 +25,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     screen \
     && rm -rf /var/lib/apt/lists/*
 
+# Create the conda directory with proper permissions first
+RUN mkdir -p $(dirname $CONDA_DIR) && \
+    chmod 777 $(dirname $CONDA_DIR)
+
 # Create non-root user and set up environment with specific UID
 RUN groupadd -r -g $GID $APP_USER 2>/dev/null || groupadd -r $APP_USER && \
     useradd -m -r -u $UID -g $APP_USER -d $APP_HOME -s /bin/bash $APP_USER 2>/dev/null || \
@@ -47,21 +51,22 @@ RUN mkdir -p \
 USER $APP_USER
 WORKDIR $APP_HOME
 
-# Install Miniconda as the non-root user
-RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh && \
-    chmod +x ~/miniconda.sh && \
-    bash ~/miniconda.sh -b -p $CONDA_DIR && \
-    rm ~/miniconda.sh && \
+# Install Miniconda as the non-root user in a temporary location
+RUN mkdir -p /tmp/conda_install && \
+    cd /tmp/conda_install && \
+    wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh && \
+    bash miniconda.sh -b -p $CONDA_DIR && \
+    rm -rf /tmp/conda_install && \
     # Initialize conda
     $CONDA_DIR/bin/conda init bash && \
     # Add conda to PATH
-    echo "export PATH=$CONDA_DIR/bin:$PATH" >> ~/.bashrc && \
+    echo "export PATH=$CONDA_DIR/bin:\$PATH" >> ~/.bashrc && \
     # Initialize conda in the current shell
     . $CONDA_DIR/etc/profile.d/conda.sh && \
     # Configure conda
-    conda config --set auto_activate_base false && \
-    conda config --add channels conda-forge && \
-    conda config --set channel_priority strict
+    $CONDA_DIR/bin/conda config --set auto_activate_base false && \
+    $CONDA_DIR/bin/conda config --add channels conda-forge && \
+    $CONDA_DIR/bin/conda config --set channel_priority strict
 
 # Copy application files first
 COPY --chown=$APP_USER:$APP_USER . $APP_HOME/
