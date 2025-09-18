@@ -2,11 +2,29 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-# Exit if not running as non-root user
-if [ "$(id -u)" -eq 0 ]; then
-    echo "Error: This script should not be run as root" >&2
+
+# Function to display usage
+usage() {
+    echo "Usage: $0 [KEY VALUE]..."
+    echo "Required parameters:"
+    echo "  inputS3Path          Input S3 path (e.g., s3://bucket/input/file.zip)"
+    echo "  outputS3Path         Output S3 path (e.g., s3://bucket/output/)"
+    echo "  seriesInstanceUID    Series Instance UID"
+    echo "  studyInstanceUID     Study Instance UID"
+    echo "  patientID            Patient ID"
+    echo "  transactionToken     Transaction token"
+    echo "  fileUploadId         File upload ID"
+    echo ""
+    echo "Example:"
+    echo "  $0 inputS3Path s3://bucket/input/file.zip outputS3Path s3://bucket/output/ \"
+    echo "     seriesInstanceUID 1.2.3.4 studyInstanceUID 1.2.3.4.5 \"
+    echo "     patientID 12345 transactionToken abc123 fileUploadId 34"
     exit 1
-fi
+}
+
+# Parse command line arguments in key-value format
+# The script expects parameters in the format: key1 value1 key2 value2 ...
+# For example: inputS3Path s3://bucket/input outputS3Path s3://bucket/output ...
 
 # Function to clean up on exit
 cleanup() {
@@ -16,8 +34,6 @@ cleanup() {
     # Kill any background processes
     pkill -P $$ || true
     
-    # Clean up temporary files
-    rm -rf "/home/draw/copy_dicom"/* "$TEMP_DIR"
     
     log "Cleanup complete. Exiting with code $exit_code"
     exit $exit_code
@@ -26,47 +42,71 @@ cleanup() {
 # Set up trap to call cleanup on script exit
 trap cleanup EXIT
 
-# Initialize variables with empty defaults to prevent unbound variable errors
-inputS3Path=""
-outputS3Path=""
-transactionToken=""
-seriesInstanceUID=""
-patientID=""
-studyInstanceUID=""
-fileUploadId=""
-
-# We have to get the environment variables from the AWS Batch job parameters
-export inputS3Path="${AWS_BATCH_JOB_PARAMETERS_inputS3Path:-$inputS3Path}"
-export outputS3Path="${AWS_BATCH_JOB_PARAMETERS_outputS3Path:-$outputS3Path}"
-export transactionToken="${AWS_BATCH_JOB_PARAMETERS_transactionToken:-$transactionToken}"
-export seriesInstanceUID="${AWS_BATCH_JOB_PARAMETERS_seriesInstanceUID:-$seriesInstanceUID}"
-export patientID="${AWS_BATCH_JOB_PARAMETERS_patientID:-$patientID}"
-export studyInstanceUID="${AWS_BATCH_JOB_PARAMETERS_studyInstanceUID:-$studyInstanceUID}"
-export fileUploadId="${AWS_BATCH_JOB_PARAMETERS_fileUploadId:-$fileUploadId}"
 
 
+# Function to parse key-value pairs from command line
+parse_parameters() {
+    while [[ $# -gt 0 ]]; do
+        key="$1"
+        value="$2"
+        
+        # Skip if value is empty or starts with --
+        if [[ -z "$value" || "$value" == --* ]]; then
+            echo "Error: Missing value for parameter: $key" >&2
+            usage
+            exit 1
+        fi
+        
+        # Set the parameter based on the key
+        case "$key" in
+            inputS3Path) inputS3Path="$value" ;;
+            outputS3Path) outputS3Path="$value" ;;
+            seriesInstanceUID) seriesInstanceUID="$value" ;;
+            studyInstanceUID) studyInstanceUID="$value" ;;
+            patientID) patientID="$value" ;;
+            transactionToken) transactionToken="$value" ;;
+            fileUploadId) fileUploadId="$value" ;;
+            *) 
+                echo "Error: Unknown parameter: $key" >&2
+                usage
+                exit 1
+                ;;
+        esac
+        shift 2
+    done
+}
 
-# Function to validate required environment variables
+# Function to validate required parameters
 validate_env() {
-    local required_vars=(
-        "inputS3Path"
-        "outputS3Path"
-        "seriesInstanceUID"
-        "studyInstanceUID"
-        "patientID"
-        "transactionToken"
-        "fileUploadId"
+    # Parse command line arguments
+    parse_parameters "$@"
+    
+    # Export parameters as environment variables for the rest of the script
+    export inputS3Path outputS3Path seriesInstanceUID studyInstanceUID
+    export patientID transactionToken fileUploadId
+    
+    # List of required parameters
+    declare -A required_params=(
+        ["inputS3Path"]="$inputS3Path"
+        ["outputS3Path"]="$outputS3Path"
+        ["seriesInstanceUID"]="$seriesInstanceUID"
+        ["studyInstanceUID"]="$studyInstanceUID"
+        ["patientID"]="$patientID"
+        ["transactionToken"]="$transactionToken"
+        ["fileUploadId"]="$fileUploadId"
     )
     
-    local missing_vars=()
-    for var in "${required_vars[@]}"; do
-        if [[ -z "${!var:-}" ]]; then
-            missing_vars+=("$var")
+    # Check for missing parameters
+    local missing_params=()
+    for param in "${!required_params[@]}"; do
+        if [[ -z "${required_params[$param]}" ]]; then
+            missing_params+=("$param")
         fi
     done
     
-    if [[ ${#missing_vars[@]} -gt 0 ]]; then
-        echo "Error: Missing required environment variables: ${missing_vars[*]}" >&2
+    if [[ ${#missing_params[@]} -gt 0 ]]; then
+        echo "Error: Missing required parameters: ${missing_params[*]}" >&2
+        echo "Please provide these as either command-line arguments or environment variables" >&2
         exit 1
     fi
 
@@ -75,6 +115,10 @@ validate_env() {
         echo "Error: Invalid fileUploadId format" >&2
         exit 1
     fi
+    
+    # Export parameters as environment variables for the rest of the script
+    export inputS3Path outputS3Path seriesInstanceUID studyInstanceUID
+    export patientID transactionToken fileUploadId
 }
 
 # Function to log messages with timestamp and log level
@@ -91,8 +135,10 @@ log() {
 
 # Main execution starts here
 log "=== nnUNet Autosegmentation Job Started ==="
-log "Validating environment variables..."
-validate_env
+log "Validating parameters..."
+
+# Validate that we have all required parameters
+validate_env "$@"
 
 log "Job parameters:"
 log "  Input S3 Path: ${inputS3Path}"
