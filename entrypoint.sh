@@ -22,74 +22,33 @@ cleanup() {
 # Set up trap to call cleanup on script exit
 trap cleanup EXIT
 
-# Parse command line arguments for AWS Batch
-parse_arguments() {
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --input-s3-path)
-                inputS3Path="$2"
-                shift 2
-                ;;
-            --output-s3-path)
-                outputS3Path="$2"
-                shift 2
-                ;;
-            --series-instance-uid)
-                seriesInstanceUID="$2"
-                shift 2
-                ;;
-            --study-instance-uid)
-                studyInstanceUID="$2"
-                shift 2
-                ;;
-            --patient-id)
-                patientID="$2"
-                shift 2
-                ;;
-            --transaction-token)
-                transactionToken="$2"
-                shift 2
-                ;;
-            --file-upload-id)
-                fileUploadId="$2"
-                shift 2
-                ;;
-            *)
-                log "Unknown parameter: $1"
-                exit 1
-                ;;
-        esac
-    done
-}
 
-# Validate required parameters
-validate_parameters() {
-    local missing_params=()
-    
-    [[ -z "${inputS3Path:-}" ]] && missing_params+=("--input-s3-path")
-    [[ -z "${outputS3Path:-}" ]] && missing_params+=("--output-s3-path")
-    [[ -z "${seriesInstanceUID:-}" ]] && missing_params+=("--series-instance-uid")
-    [[ -z "${studyInstanceUID:-}" ]] && missing_params+=("--study-instance-uid")
-    [[ -z "${patientID:-}" ]] && missing_params+=("--patient-id")
-    [[ -z "${transactionToken:-}" ]] && missing_params+=("--transaction-token")
-    [[ -z "${fileUploadId:-}" ]] && missing_params+=("--file-upload-id")
-    
-    if [[ ${#missing_params[@]} -gt 0 ]]; then
-        log "Error: Missing required parameters: ${missing_params[*]}"
-        log "Usage: $0 --input-s3-path <path> --output-s3-path <path> --series-instance-uid <uid> --study-instance-uid <uid> --patient-id <id> --transaction-token <token> --file-upload-id <id>"
-        exit 1
+# Check if required environment variables are set
+required_vars=(
+    "inputS3Path"
+    "outputS3Path"
+    "seriesInstanceUID"
+    "studyInstanceUID"
+    "patientID"
+    "transactionToken"
+    "fileUploadId"
+)
+
+missing_vars=()
+for var in "${required_vars[@]}"; do
+    if [ -z "${!var:-}" ]; then
+        missing_vars+=("$var")
     fi
-}
+done
 
-log "Starting parameter validation..."
+if [ ${#missing_vars[@]} -ne 0 ]; then
+    log "Error: The following required environment variables are not set:"
+    for var in "${missing_vars[@]}"; do
+        log "  - $var"
+    done
+    exit 1
+fi
 
-# Parse command line arguments
-parse_arguments "$@"
-
-# Validate all required parameters are present
-validate_parameters
-
-log "Environment validation completed successfully"
 log "Job parameters:"
 log "  Input S3 Path: ${inputS3Path}"
 log "  Output S3 Path: ${outputS3Path}"
