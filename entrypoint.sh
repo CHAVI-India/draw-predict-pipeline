@@ -83,7 +83,7 @@ else
 fi 
 
 # Load environment configuration
-ALEMBIC_SCRIPT_LOCATION=$(grep 'ALEMBIC_SCRIPT_LOCATION:' /home/draw/draw/env.draw.yml | cut -d ' ' -f2)
+ALEMBIC_SCRIPT_LOCATION=$(grep 'ALEMBIC_SCRIPT_LOCATION:' /home/draw/env.draw.yml | cut -d ' ' -f2)
 if [ -z "$ALEMBIC_SCRIPT_LOCATION" ]; then
     log "Error: ALEMBIC_SCRIPT_LOCATION not found in env.draw.yml"
     exit 1
