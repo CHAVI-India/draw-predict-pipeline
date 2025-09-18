@@ -48,11 +48,20 @@ trap cleanup EXIT
 parse_parameters() {
     while [[ $# -gt 0 ]]; do
         key="$1"
+        
+        # Check if there's a value for this key
+        if [ $# -lt 2 ] || [ "$2" = "--" ]; then
+            echo "Error: Missing value for parameter: $key" >&2
+            usage
+            exit 1
+        fi
+        
         value="$2"
+        shift  # Shift past the value
         
         # Skip if value is empty or starts with --
         if [[ -z "$value" || "$value" == --* ]]; then
-            echo "Error: Missing value for parameter: $key" >&2
+            echo "Error: Invalid value for parameter: $key" >&2
             usage
             exit 1
         fi
@@ -72,7 +81,7 @@ parse_parameters() {
                 exit 1
                 ;;
         esac
-        shift 2
+        shift
     done
 }
 
