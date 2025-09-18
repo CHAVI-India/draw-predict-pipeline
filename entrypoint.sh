@@ -2,7 +2,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-# Logging function
+# Logging function only on console.
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*" 
 }
