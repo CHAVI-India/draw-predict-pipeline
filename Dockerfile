@@ -25,14 +25,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     screen \
     && rm -rf /var/lib/apt/lists/*
 
-# Create the conda directory with proper permissions first
-RUN mkdir -p $(dirname $CONDA_DIR) && \
-    chmod 777 $(dirname $CONDA_DIR)
-
-# Create non-root user and set up environment with specific UID
+# Create non-root user and set up environment with specific UID first
 RUN groupadd -r -g $GID $APP_USER 2>/dev/null || groupadd -r $APP_USER && \
-    useradd -m -r -u $UID -g $APP_USER -d $APP_HOME -s /bin/bash $APP_USER 2>/dev/null || \
-    useradd -m -r -g $APP_USER -d $APP_HOME -s /bin/bash $APP_USER
+    useradd -m -r -u $UID -g $GID -d $APP_HOME -s /bin/bash $APP_USER && \
+    mkdir -p $APP_HOME && \
+    chown -R $APP_USER:$APP_USER $APP_HOME
+
+# Switch to non-root user for the rest of the build
+USER $APP_USER
+WORKDIR $APP_HOME
 
 # Create required directories with proper permissions
 RUN mkdir -p \
@@ -44,48 +45,40 @@ RUN mkdir -p \
     $APP_HOME/draw/bin && \
     find $APP_HOME -type d -exec chmod 755 {} \;
 
-# Switch to non-root user for Miniconda installation
-USER $APP_USER
-WORKDIR $APP_HOME
+# Copy application files
+COPY --chown=$APP_USER:$APP_USER . $APP_HOME/    
 
-# Install Miniconda as the non-root user in a temporary location
-RUN mkdir -p /tmp/conda_install && \
-    cd /tmp/conda_install && \
-    wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh && \
-    bash miniconda.sh -b -p $CONDA_DIR && \
-    rm -rf /tmp/conda_install && \
-    # Initialize conda
-    $CONDA_DIR/bin/conda init bash && \
-    # Add conda to PATH
-    echo "export PATH=$CONDA_DIR/bin:\$PATH" >> ~/.bashrc && \
-    # Initialize conda in the current shell
-    . $CONDA_DIR/etc/profile.d/conda.sh && \
+# Install and configure miniconda with environment setup
+RUN set -e && \
+    # Download and install miniconda
+    wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
+    bash /tmp/miniconda.sh -b -p $CONDA_DIR && \
+    rm /tmp/miniconda.sh && \
     # Configure conda
-    $CONDA_DIR/bin/conda config --set auto_activate_base false && \
-    $CONDA_DIR/bin/conda config --add channels conda-forge && \
-    $CONDA_DIR/bin/conda config --set channel_priority strict
-
-# Copy application files first
-COPY --chown=$APP_USER:$APP_USER . $APP_HOME/
-
-# Create conda environment from environment.yml
-RUN . $CONDA_DIR/etc/profile.d/conda.sh && \
+    $CONDA_DIR/bin/conda config --system --set auto_activate_base false && \
+    $CONDA_DIR/bin/conda config --system --add channels conda-forge && \
+    $CONDA_DIR/bin/conda config --system --set channel_priority strict && \
     # Accept conda terms of service
-    $CONDA_DIR/bin/conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main && \
-    $CONDA_DIR/bin/conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r && \
-    # Create the environment
+    $CONDA_DIR/bin/conda tos accept --override-channels \
+        --channel https://repo.anaconda.com/pkgs/main \
+        --channel https://repo.anaconda.com/pkgs/r && \
+    # Set up environment
+    echo "export PATH=\$CONDA_DIR/bin:\$PATH" >> ~/.bashrc && \
+    echo "eval \"\$($CONDA_DIR/bin/conda shell.bash hook)\"" >> ~/.bashrc && \
+    . $CONDA_DIR/etc/profile.d/conda.sh && \
+    # Create environment and install packages
     $CONDA_DIR/bin/conda env create -f $APP_HOME/environment.yml -n draw && \
     # Clean up
     $CONDA_DIR/bin/conda clean --all -y && \
-    # Initialize conda for the user
-    echo "export PATH=$CONDA_DIR/bin:\$PATH" >> ~/.bashrc && \
-    echo ". $CONDA_DIR/etc/profile.d/conda.sh" >> ~/.bashrc && \
-    echo "conda activate draw" >> ~/.bashrc
+    find $CONDA_DIR -type f -name '*.py[co]' -delete && \
+    find $CONDA_DIR -type f -name '*.js.map' -delete && \
+    rm -rf $CONDA_DIR/pkgs/*
 
-# Set environment for conda
-ENV PATH=$CONDA_DIR/envs/draw/bin:$PATH
-ENV CONDA_DEFAULT_ENV=draw
-ENV CONDA_PREFIX=$CONDA_DIR/envs/$CONDA_DEFAULT_ENV
+# Set environment variables for the container
+ENV PATH=$CONDA_DIR/envs/draw/bin:$PATH \
+    CONDA_DEFAULT_ENV=draw \
+    CONDA_PREFIX=$CONDA_DIR/envs/draw \
+    PYTHONUNBUFFERED=1
 
 # Switch to root to handle entrypoint script
 USER root
