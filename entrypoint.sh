@@ -65,9 +65,9 @@ log "=== nnUNet Autosegmentation Job Started ==="
 log "Script arguments: $*"
 
 # Start the DRAW pipeline in a detached screen session so that it can be monitored. 
-# The pipeline folder is located at /home/draw/draw
+# The pipeline folder is located at /home/draw/pipeline
 # First activate the conda environment called draw
-cd /home/draw/draw
+cd /home/draw/pipeline
 log "Changed directory to home directory"
 
 source ~/miniconda3/etc/profile.d/conda.sh && conda activate draw
@@ -91,7 +91,7 @@ fi
 
 # Create a temporary alembic.ini with the correct script_location
 TEMP_ALEMBIC_INI="/tmp/alembic.ini.$$"
-cp /home/draw/draw/alembic.ini "$TEMP_ALEMBIC_INI"
+cp /home/draw/pipeline/alembic.ini "$TEMP_ALEMBIC_INI"
 sed -i "s|script_location = .*|script_location = $ALEMBIC_SCRIPT_LOCATION|" "$TEMP_ALEMBIC_INI"
 
 # Create the alembic database
@@ -101,7 +101,7 @@ ALEMBIC_CONFIG="$TEMP_ALEMBIC_INI" alembic -c "$TEMP_ALEMBIC_INI" upgrade head
 
 
 # Check if the database is created successfully. The database is created as a sqlite database called draw.db.sqlite in the data directory.
-if [ ! -f /home/draw/draw/data/draw.db.sqlite ]; then
+if [ ! -f /home/draw/pipeline/data/draw.db.sqlite ]; then
     log "Error: Database is not created successfully"
     exit 1
 else
@@ -110,24 +110,24 @@ fi
 
 # Delete the output directory if it exists and recreate it
 log "Preparing output directory..."
-rm -rf /home/draw/draw/output
-mkdir -p /home/draw/draw/output
+rm -rf /home/draw/pipeline/output
+mkdir -p /home/draw/pipeline/output
 
 # Symlink the efs mount to the output directory
 log "Setting up nnUNet results symlink..."
-ln -sf /mnt/efs/nnUNet_results /home/draw/draw/data/nnUNet_results
+ln -sf /mnt/efs/nnUNet_results /home/draw/pipeline/data/nnUNet_results
 
 # Check if we can see models in the nnUNet directory
-if [ $(ls -1 /home/draw/draw/data/nnUNet_results | wc -l) -eq 0 ]; then
+if [ $(ls -1 /home/draw/pipeline/data/nnUNet_results | wc -l) -eq 0 ]; then
     log "Error: No models found in the nnUNet_results directory"
     exit 1
 else
-    log "Found $(ls -1 /home/draw/draw/data/nnUNet_results | wc -l) models in nnUNet_results directory"
+    log "Found $(ls -1 /home/draw/pipeline/data/nnUNet_results | wc -l) models in nnUNet_results directory"
 fi
 
 # Create necessary directories
 log "Creating necessary directories..."
-mkdir -p /home/draw/draw/logs
+mkdir -p /home/draw/pipeline/logs
 mkdir -p /home/draw/copy_dicom/files
 
 # Start the pipeline in the background
@@ -136,7 +136,7 @@ log "Starting the pipeline..."
     source ~/miniconda3/etc/profile.d/conda.sh
     conda activate draw
     python main.py start-pipeline
-} > "/home/draw/draw/logs/pipeline.log" 2>&1 &
+} > "/home/draw/pipeline/logs/pipeline.log" 2>&1 &
 PIPELINE_PID=$!
 
 # Function to check if pipeline is running
@@ -144,7 +144,7 @@ check_pipeline_running() {
     if ! kill -0 $PIPELINE_PID 2>/dev/null; then
         log "Error: Pipeline process is not running"
         log "Pipeline logs:"
-        cat "/home/draw/draw/logs/pipeline.log"
+        cat "/home/draw/pipeline/logs/pipeline.log"
         return 1
     fi
     return 0
@@ -162,7 +162,7 @@ log "Pipeline started successfully (PID: $PIPELINE_PID)"
 
 # Ensure directories exist with correct permissions
 log "Verifying working directories..."
-for dir in "/home/draw/copy_dicom" "/home/draw/draw/dicom" "/home/draw/draw/output" "/home/draw/draw/logs"; do
+for dir in "/home/draw/copy_dicom" "/home/draw/pipeline/dicom" "/home/draw/pipeline/output" "/home/draw/pipeline/logs"; do
     if [ ! -d "$dir" ]; then
         log "Error: Directory $dir does not exist"
         exit 1
@@ -192,7 +192,7 @@ fi
 
 # Move DICOM files to watch directory
 log "Moving DICOM files to watch directory..."
-if ! find /home/draw/copy_dicom/files -type f -name "*.dcm" -exec mv {} /home/draw/draw/dicom/ \;; then
+if ! find /home/draw/copy_dicom/files -type f -name "*.dcm" -exec mv {} /home/draw/pipeline/dicom/ \;; then
     log "Error: Failed to move DICOM files"
     exit 1
 fi
@@ -206,7 +206,7 @@ sleep 60
 log "Waiting for pipeline log file to be created..."
 log_found=false
 for i in {1..5}; do
-    if [ -f /home/draw/draw/logs/logfile.log ]; then
+    if [ -f /home/draw/pipeline/logs/logfile.log ]; then
         log "Log file found"
         log_found=true
         break
@@ -224,7 +224,7 @@ fi
 log "Checking if DICOM data has been recognized by pipeline..."
 dicom_recognized=false
 for i in {1..10}; do
-    if grep -q "dicom" /home/draw/draw/logs/logfile.log; then
+    if grep -q "dicom" /home/draw/pipeline/logs/logfile.log; then
         log "DICOM data recognized"
         dicom_recognized=true
         break
@@ -235,7 +235,7 @@ done
 if [ "$dicom_recognized" = false ]; then
     log "Error: DICOM data not recognized in the pipeline after 5 minutes of waiting"
     log "Contents of the log file:"
-    cat /home/draw/draw/logs/logfile.log
+    cat /home/draw/pipeline/logs/logfile.log
     exit 1
 fi
 
@@ -243,16 +243,16 @@ fi
 log "Waiting for auto-segmentation to complete..."
 if command -v inotifywait &> /dev/null; then
     log "Using inotifywait to monitor for file creation..."
-    if timeout 1200 inotifywait -e create --format '%f' -q /home/draw/draw/output/ | grep -q "AUTOSEGMENT.RT.dcm"; then
+    if timeout 1200 inotifywait -e create --format '%f' -q /home/draw/pipeline/output/ | grep -q "AUTOSEGMENT.RT.dcm"; then
         log "Auto-segmentation file found"
     else
         # Check if file exists in case it was created before inotify started watching
-        if [ -f "/home/draw/draw/output/AUTOSEGMENT.RT.dcm" ]; then
+        if [ -f "/home/draw/pipeline/output/AUTOSEGMENT.RT.dcm" ]; then
             log "Auto-segmentation file found"
         else
             log "Error: Auto-segmentation file not found after 20 minutes of waiting"
             log "Contents of the log file:"
-            cat /home/draw/draw/logs/logfile.log
+            cat /home/draw/pipeline/logs/logfile.log
             exit 1
         fi
     fi
@@ -260,7 +260,7 @@ else
     log "inotify-tools not available, falling back to polling..."
     auto_segment_file_found=false
     for i in {1..40}; do
-        if [ -f /home/draw/draw/output/AUTOSEGMENT.RT.dcm ]; then
+        if [ -f /home/draw/pipeline/output/AUTOSEGMENT.RT.dcm ]; then
             log "Auto-segmentation file found"
             auto_segment_file_found=true
             break
@@ -271,7 +271,7 @@ else
     if [ "$auto_segment_file_found" = false ]; then
         log "Error: Auto-segmentation file not found after 20 minutes of waiting"
         log "Contents of the logfile:"
-        cat /home/draw/draw/logs/logfile.log
+        cat /home/draw/pipeline/logs/logfile.log
         exit 1
     fi
 fi
@@ -281,7 +281,7 @@ log "Waiting for 15 seconds for final writes to complete..."
 sleep 15
 
 # Define output file paths
-local_output_file="/home/draw/draw/output/AUTOSEGMENT.RT.dcm"
+local_output_file="/home/draw/pipeline/output/AUTOSEGMENT.RT.dcm"
 s3_output_path="${outputS3Path}/AUTOSEGMENT.RT.${fileUploadId}.dcm"
 
 # Verify output file exists and is not empty
@@ -308,8 +308,8 @@ fi
 log "Auto-segmentation completed successfully"
 log "Result available at: ${s3_output_path}"
 log "Final pipeline log:"
-if [ -f /home/draw/draw/logs/pipeline.log ]; then
-    cat /home/draw/draw/logs/pipeline.log
+if [ -f /home/draw/pipeline/logs/pipeline.log ]; then
+    cat /home/draw/pipeline/logs/pipeline.log
 fi
 
 # Exit with success

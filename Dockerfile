@@ -37,16 +37,16 @@ WORKDIR $APP_HOME
 
 # Create required directories with proper permissions
 RUN mkdir -p \
-    $APP_HOME/draw/data/nnUNet_results \
-    $APP_HOME/draw/output \
-    $APP_HOME/draw/logs \
-    $APP_HOME/draw/dicom \
+    $APP_HOME/pipeline/data/nnUNet_results \
+    $APP_HOME/pipeline/output \
+    $APP_HOME/pipeline/logs \
+    $APP_HOME/pipeline/dicom \
     $APP_HOME/copy_dicom \
-    $APP_HOME/draw/bin && \
+    $APP_HOME/pipeline/bin && \
     find $APP_HOME -type d -exec chmod 755 {} \;
 
 # Copy application files
-COPY --chown=$APP_USER:$APP_USER . $APP_HOME/    
+COPY --chown=$APP_USER:$APP_USER . $APP_HOME/pipeline/    
 
 # Install and configure miniconda with environment setup
 RUN set -e && \
