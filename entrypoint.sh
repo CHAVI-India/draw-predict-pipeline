@@ -144,17 +144,25 @@ log() {
 
 # Main execution starts here
 log "=== nnUNet Autosegmentation Job Started ==="
-log "Validating parameters..."
+log "Starting parameter validation..."
 
 # Check if the first argument is 'bash' (interactive shell)
 if [ "$1" = "bash" ]; then
+    log "Running in interactive shell mode"
     exec "$@"
     exit $?
 fi
 
-# Validate that we have all required parameters
-validate_env "$@"
+# Log all arguments for debugging
+log "Script arguments: $@"
+log "Validating environment and parameters..."
 
+# Validate that we have all required parameters
+set -x  # Enable debug output
+validate_env "$@"
+set +x  # Disable debug output
+
+log "Environment validation completed successfully"
 log "Job parameters:"
 log "  Input S3 Path: ${inputS3Path}"
 log "  Output S3 Path: ${outputS3Path}"
@@ -164,17 +172,41 @@ log "  Patient ID: ${patientID}"
 log "  Transaction Token: ${transactionToken:0:4}...${transactionToken: -4}"  # Show partial token for security
 log "  File Upload ID: ${fileUploadId}"
 
-# Parse S3 URIs - works with real values
+# Parse S3 URIs
 parse_s3_uri() {
     local s3_uri=$1
+    log "Parsing S3 URI: $s3_uri"
+    
+    if [[ -z "$s3_uri" ]]; then
+        log "Error: Empty S3 URI provided" >&2
+        exit 1
+    fi
+    
+    if [[ ! "$s3_uri" =~ ^s3:// ]]; then
+        log "Error: Invalid S3 URI format. Must start with 's3://': $s3_uri" >&2
+        exit 1
+    fi
+    
     local path=${s3_uri#s3://}
     local bucket=${path%%/*}
     local key=${path#*/}
+    
+    if [[ -z "$bucket" ]]; then
+        log "Error: Could not extract bucket from S3 URI: $s3_uri" >&2
+        exit 1
+    fi
+    
+    log "Parsed S3 URI - Bucket: $bucket, Key: $key"
     echo "$bucket $key"
 }
 
+log "Parsing input S3 path: ${inputS3Path}"
 read INPUT_BUCKET INPUT_KEY <<< $(parse_s3_uri "${inputS3Path}")
+log "Input S3 - Bucket: $INPUT_BUCKET, Key: $INPUT_KEY"
+
+log "Parsing output S3 path: ${outputS3Path}"
 read OUTPUT_BUCKET OUTPUT_KEY <<< $(parse_s3_uri "${outputS3Path}")
+log "Output S3 - Bucket: $OUTPUT_BUCKET, Key: $OUTPUT_KEY"
 
 
 
