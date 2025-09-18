@@ -100,5 +100,4 @@ USER $APP_USER
 
 # Set the entrypoint and default command
 ENTRYPOINT ["/entrypoint.sh"]
-# The entrypoint script is already set up to run as the non-root user
-CMD ["bash"]
+
