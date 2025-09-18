@@ -67,7 +67,7 @@ RUN set -e && \
     echo "eval \"\$($CONDA_DIR/bin/conda shell.bash hook)\"" >> ~/.bashrc && \
     . $CONDA_DIR/etc/profile.d/conda.sh && \
     # Create environment and install packages
-    $CONDA_DIR/bin/conda env create -f $APP_HOME/environment.yml -n draw && \
+    $CONDA_DIR/bin/conda env create -f $APP_HOME/pipeline/environment.yml -n draw && \
     # Clean up
     $CONDA_DIR/bin/conda clean --all -y && \
     find $CONDA_DIR -type f -name '*.py[co]' -delete && \
