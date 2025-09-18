@@ -10,7 +10,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     CONDA_DIR=/home/draw/miniconda3 \
     APP_USER=draw \
-    APP_HOME=/draw \
+    APP_HOME=/home/draw \
     EFS_MOUNT=/mnt/efs
 
 # Install system dependencies and clean up in one layer
@@ -40,6 +40,7 @@ RUN mkdir -p \
     $APP_HOME/draw/output \
     $APP_HOME/draw/logs \
     $APP_HOME/draw/dicom \
+    $APP_HOME/draw/draw \
     $APP_HOME/copy_dicom \
     $APP_HOME/draw/bin && \
     find $APP_HOME -type d -exec chmod 755 {} \;
