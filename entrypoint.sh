@@ -4,7 +4,7 @@ IFS=$'\n\t'
 
 # Logging function
 log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*" | tee -a /var/log/batch_job.log
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*" 
 }
 
 # Function to clean up on exit
