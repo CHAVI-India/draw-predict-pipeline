@@ -26,6 +26,18 @@ cleanup() {
 # Set up trap to call cleanup on script exit
 trap cleanup EXIT
 
+
+# We have to get the environment variables from the AWS Batch job parameters
+export inputS3Path="${AWS_BATCH_JOB_PARAMETERS_inputS3Path:-$inputS3Path}"
+export outputS3Path="${AWS_BATCH_JOB_PARAMETERS_outputS3Path:-$outputS3Path}"
+export transactionToken="${AWS_BATCH_JOB_PARAMETERS_transactionToken:-$transactionToken}"
+export seriesInstanceUID="${AWS_BATCH_JOB_PARAMETERS_seriesInstanceUID:-$seriesInstanceUID}"
+export patientID="${AWS_BATCH_JOB_PARAMETERS_patientID:-$patientID}"
+export studyInstanceUID="${AWS_BATCH_JOB_PARAMETERS_studyInstanceUID:-$studyInstanceUID}"
+export fileUploadId="${AWS_BATCH_JOB_PARAMETERS_fileUploadId:-$fileUploadId}"
+
+
+
 # Function to validate required environment variables
 validate_env() {
     local required_vars=(
