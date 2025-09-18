@@ -146,6 +146,12 @@ log() {
 log "=== nnUNet Autosegmentation Job Started ==="
 log "Validating parameters..."
 
+# Check if the first argument is 'bash' (interactive shell)
+if [ "$1" = "bash" ]; then
+    exec "$@"
+    exit $?
+fi
+
 # Validate that we have all required parameters
 validate_env "$@"
 
