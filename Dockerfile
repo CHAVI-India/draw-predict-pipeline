@@ -40,7 +40,6 @@ RUN mkdir -p \
     $APP_HOME/draw/output \
     $APP_HOME/draw/logs \
     $APP_HOME/draw/dicom \
-    $APP_HOME/draw/draw \
     $APP_HOME/copy_dicom \
     $APP_HOME/draw/bin && \
     find $APP_HOME -type d -exec chmod 755 {} \;
