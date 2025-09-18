@@ -26,6 +26,14 @@ cleanup() {
 # Set up trap to call cleanup on script exit
 trap cleanup EXIT
 
+# Initialize variables with empty defaults to prevent unbound variable errors
+inputS3Path=""
+outputS3Path=""
+transactionToken=""
+seriesInstanceUID=""
+patientID=""
+studyInstanceUID=""
+fileUploadId=""
 
 # We have to get the environment variables from the AWS Batch job parameters
 export inputS3Path="${AWS_BATCH_JOB_PARAMETERS_inputS3Path:-$inputS3Path}"
