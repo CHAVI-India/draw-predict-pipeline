@@ -68,8 +68,10 @@ log "Script arguments: $*"
 # The pipeline folder is located at /home/draw/draw
 # First activate the conda environment called draw
 cd /home/draw/draw
+log "Changed directory to home directory"
 
 source ~/miniconda3/etc/profile.d/conda.sh && conda activate draw
+log "Activated conda environment"
 
 # Next we need to create the database using alembic
 # First check if alembic is available in the conda environment
@@ -80,9 +82,23 @@ else
     log "alembic is available in the conda environment"
 fi 
 
+# Load environment configuration
+ALEMBIC_SCRIPT_LOCATION=$(grep 'ALEMBIC_SCRIPT_LOCATION:' /home/draw/draw/env.draw.yml | cut -d ' ' -f2)
+if [ -z "$ALEMBIC_SCRIPT_LOCATION" ]; then
+    log "Error: ALEMBIC_SCRIPT_LOCATION not found in env.draw.yml"
+    exit 1
+fi
+
+# Create a temporary alembic.ini with the correct script_location
+TEMP_ALEMBIC_INI="/tmp/alembic.ini.$$"
+cp /home/draw/draw/alembic.ini "$TEMP_ALEMBIC_INI"
+sed -i "s|script_location = .*|script_location = $ALEMBIC_SCRIPT_LOCATION|" "$TEMP_ALEMBIC_INI"
+
 # Create the alembic database
 log "Creating database with alembic..."
-alembic upgrade head
+ALEMBIC_CONFIG="$TEMP_ALEMBIC_INI" alembic -c "$TEMP_ALEMBIC_INI" upgrade head
+
+
 
 # Check if the database is created successfully. The database is created as a sqlite database called draw.db.sqlite in the data directory.
 if [ ! -f /home/draw/draw/data/draw.db.sqlite ]; then
