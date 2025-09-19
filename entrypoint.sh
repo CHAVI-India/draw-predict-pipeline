@@ -201,7 +201,9 @@ log_found=false
 for i in {1..5}; do
     if [ -f /home/draw/pipeline/logs/logfile.log ]; then
         log "Log file found"
+        cat /home/draw/pipeline/logs/logfile.log
         log_found=true
+        
         break
     fi
     sleep 60
@@ -217,7 +219,7 @@ fi
 log "Checking if DICOM data has been recognized by pipeline..."
 dicom_recognized=false
 for i in {1..10}; do
-    if grep -q "dicom" /home/draw/pipeline/logs/logfile.log; then
+    if grep -q "detected" /home/draw/pipeline/logs/logfile.log; then
         log "DICOM data recognized"
         dicom_recognized=true
         break
