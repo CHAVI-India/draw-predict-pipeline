@@ -12,6 +12,7 @@ PyYAML
 retry
 rt-utils
 schema
+
 simpleitk
 sqlalchemy
 # Download as per GPU and latest CUDA

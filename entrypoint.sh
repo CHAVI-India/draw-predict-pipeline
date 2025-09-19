@@ -161,25 +161,6 @@ screen -d -m python main.py start-pipeline
 log "Waiting for pipeline to initialize..."
 sleep 10
 
-# We check for the the text Please cite in the logfile. If it is not present that means the pipeline is not running.
-log "Checking if pipeline is running..."
-if ! grep -q "Please cite" /home/draw/pipeline/logs/logfile.log; then
-    log "Error: Pipeline is not running"
-    exit 1
-else
-    log "Pipeline is running"
-fi
-
-
-
-# Ensure directories exist with correct permissions
-log "Verifying working directories..."
-for dir in "/home/draw/copy_dicom" "/home/draw/pipeline/dicom" "/home/draw/pipeline/output" "/home/draw/pipeline/logs"; do
-    if [ ! -d "$dir" ]; then
-        log "Error: Directory $dir does not exist"
-        exit 1
-    fi
-done
 
 # Download DICOM zip from S3
 local_zip_path="/home/draw/copy_dicom/file_upload_${fileUploadId}_dicom.zip"
