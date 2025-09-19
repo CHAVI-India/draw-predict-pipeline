@@ -145,18 +145,6 @@ else
     exit 1
 fi
 
-# Get the number of subdirectories in the nnUNet_results folder. 
-# Also print the names.
-# If the number is 0 then exit the script
-
-if [ $(ls /home/draw/pipeline/data/nnUNet_results -l | grep ^d | wc -l) -eq 0 ]; then
-    log "Error: No models found in the nnUNet_results directory"
-    exit 1
-else
-    log "Found $(ls /home/draw/pipeline/data/nnUNet_results -l | grep ^d | wc -l) models in nnUNet_results directory"
-    log "Models: $(ls /home/draw/pipeline/data/nnUNet_results -l | grep ^d)"
-fi
-
 #
 # Create necessary directories
 log "Creating necessary directories..."
