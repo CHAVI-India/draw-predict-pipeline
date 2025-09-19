@@ -105,12 +105,17 @@ mkdir -p /home/draw/pipeline/data
 
 # Create the symlink
 log "Creating nnUNet results symlink..."
-if ln -sf /mnt/efs/nnUNet_results /home/draw/pipeline/data/nnUNet_results; then
-    log "Successfully created symlink"
-else
-    log "Error: Failed to create symlink"
-    exit 1
+
+# Ensure target directory exists
+mkdir -p /home/draw/pipeline/data
+
+# Remove any existing symlink or directory
+if [ -e "/home/draw/pipeline/data/nnUNet_results" ]; then
+    rm -rf "/home/draw/pipeline/data/nnUNet_results"
 fi
+
+# Create the symlink
+ln -sf /mnt/efs/nnUNet_results /home/draw/pipeline/data/nnUNet_results
 
 # Verify and log EFS mount directory contents
 if [ -d "/mnt/efs/nnUNet_results" ]; then
@@ -122,6 +127,11 @@ else
     log "Error: EFS directory /mnt/efs/nnUNet_results does not exist"
     exit 1
 fi
+
+# Check EFS filesystem type and permissions
+df -Th /mnt/efs
+ls -ld /mnt/efs /home/draw/pipeline/data
+mount | grep efs
 
 # Verify and log symlink directory contents
 if [ -L "/home/draw/pipeline/data/nnUNet_results" ]; then
