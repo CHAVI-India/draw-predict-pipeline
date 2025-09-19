@@ -82,22 +82,9 @@ else
     log "alembic is available in the conda environment"
 fi 
 
-# Load environment configuration
-ALEMBIC_SCRIPT_LOCATION=$(grep 'ALEMBIC_SCRIPT_LOCATION:' /home/draw/pipeline/env.draw.yml | cut -d ' ' -f2)
-if [ -z "$ALEMBIC_SCRIPT_LOCATION" ]; then
-    log "Error: ALEMBIC_SCRIPT_LOCATION not found in env.draw.yml"
-    exit 1
-fi
+# Create database using alembic
 
-# Create a temporary alembic.ini with the correct script_location
-TEMP_ALEMBIC_INI="/tmp/alembic.ini.$$"
-cp /home/draw/pipeline/alembic.ini "$TEMP_ALEMBIC_INI"
-sed -i "s|script_location = .*|script_location = $ALEMBIC_SCRIPT_LOCATION|" "$TEMP_ALEMBIC_INI"
-
-# Create the alembic database
-log "Creating database with alembic..."
-ALEMBIC_CONFIG="$TEMP_ALEMBIC_INI" alembic -c "$TEMP_ALEMBIC_INI" upgrade head
-
+alembic upgrade head
 
 
 # Check if the database is created successfully. The database is created as a sqlite database called draw.db.sqlite in the data directory.
