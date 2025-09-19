@@ -104,6 +104,29 @@ mkdir -p /home/draw/pipeline/output
 log "Setting up nnUNet results symlink..."
 ln -sf /mnt/efs/nnUNet_results /home/draw/pipeline/data/nnUNet_results
 
+# Verify and log EFS mount directory contents
+if [ -d "/mnt/efs/nnUNet_results" ]; then
+    log "Listing contents of EFS mount directory (/mnt/efs/nnUNet_results):"
+    if ! ls -RS /mnt/efs/nnUNet_results 2>/dev/null; then
+        log "Warning: Failed to list EFS contents"
+    fi
+else
+    log "Error: EFS directory /mnt/efs/nnUNet_results does not exist"
+    exit 1
+fi
+
+# Verify and log symlink directory contents
+if [ -L "/home/draw/pipeline/data/nnUNet_results" ]; then
+    log "Listing contents of symlink directory (/home/draw/pipeline/data/nnUNet_results):"
+    if ! ls -RS /home/draw/pipeline/data/nnUNet_results 2>/dev/null; then
+        log "Error: Failed to list symlink contents - check permissions or target"
+        exit 1
+    fi
+else
+    log "Error: Symlink /home/draw/pipeline/data/nnUNet_results does not exist or is not a symlink"
+    exit 1
+fi
+
 # Get the number of subdirectories in the nnUNet_results folder. 
 # Also print the names.
 # If the number is 0 then exit the script
