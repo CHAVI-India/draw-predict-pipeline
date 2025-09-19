@@ -100,9 +100,17 @@ log "Preparing output directory..."
 rm -rf /home/draw/pipeline/output
 mkdir -p /home/draw/pipeline/output
 
-# Symlink the efs mount to the data directory
-log "Setting up nnUNet results symlink..."
-ln -sf /mnt/efs/nnUNet_results /home/draw/pipeline/data/nnUNet_results
+# Create parent directory if it doesn't exist
+mkdir -p /home/draw/pipeline/data
+
+# Create the symlink
+log "Creating nnUNet results symlink..."
+if ln -sf /mnt/efs/nnUNet_results /home/draw/pipeline/data/nnUNet_results; then
+    log "Successfully created symlink"
+else
+    log "Error: Failed to create symlink"
+    exit 1
+fi
 
 # Verify and log EFS mount directory contents
 if [ -d "/mnt/efs/nnUNet_results" ]; then
