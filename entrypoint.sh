@@ -100,52 +100,48 @@ log "Preparing output directory..."
 rm -rf /home/draw/pipeline/output
 mkdir -p /home/draw/pipeline/output
 
-# Symlink the efs mount to the output directory
+# Symlink the efs mount to the data directory
 log "Setting up nnUNet results symlink..."
 ln -sf /mnt/efs/nnUNet_results /home/draw/pipeline/data/nnUNet_results
 
-# Check if we can see models in the nnUNet directory
-if [ $(ls -1 /home/draw/pipeline/data/nnUNet_results | wc -l) -eq 0 ]; then
+# Get the number of subdirectories in the nnUNet_results folder. 
+# Also print the names.
+# If the number is 0 then exit the script
+
+if [ $(ls /home/draw/pipeline/data/nnUNet_results -l | grep ^d | wc -l) -eq 0 ]; then
     log "Error: No models found in the nnUNet_results directory"
     exit 1
 else
-    log "Found $(ls -1 /home/draw/pipeline/data/nnUNet_results | wc -l) models in nnUNet_results directory"
+    log "Found $(ls /home/draw/pipeline/data/nnUNet_results -l | grep ^d | wc -l) models in nnUNet_results directory"
+    log "Models: $(ls /home/draw/pipeline/data/nnUNet_results -l | grep ^d)"
 fi
 
+#
 # Create necessary directories
 log "Creating necessary directories..."
 mkdir -p /home/draw/pipeline/logs
 mkdir -p /home/draw/copy_dicom/files
 
-# Start the pipeline in the background
-log "Starting the pipeline..."
-{
-    source ~/miniconda3/etc/profile.d/conda.sh
-    conda activate draw
-    python main.py start-pipeline
-} > "/home/draw/pipeline/logs/pipeline.log" 2>&1 &
-PIPELINE_PID=$!
-
-# Function to check if pipeline is running
-check_pipeline_running() {
-    if ! kill -0 $PIPELINE_PID 2>/dev/null; then
-        log "Error: Pipeline process is not running"
-        log "Pipeline logs:"
-        cat "/home/draw/pipeline/logs/pipeline.log"
-        return 1
-    fi
-    return 0
-}
+# Start the pipeline in a detached screen session
+log "Starting the pipeline in a detached screen session..."
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate draw
+screen -d -m python main.py start-pipeline
 
 # Wait for pipeline to start
 log "Waiting for pipeline to initialize..."
-sleep 5
+sleep 10
 
-if ! check_pipeline_running; then
-    exit 1 # Logging happens in the function call.
+# We check for the the text Please cite in the logfile. If it is not present that means the pipeline is not running.
+log "Checking if pipeline is running..."
+if ! grep -q "Please cite" /home/draw/pipeline/logs/logfile.log; then
+    log "Error: Pipeline is not running"
+    exit 1
+else
+    log "Pipeline is running"
 fi
 
-log "Pipeline started successfully (PID: $PIPELINE_PID)"
+
 
 # Ensure directories exist with correct permissions
 log "Verifying working directories..."
