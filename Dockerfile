@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     inotify-tools \
     unzip \
     screen \
+    sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user and set up environment with specific UID first

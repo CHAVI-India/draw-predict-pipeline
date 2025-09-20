@@ -264,34 +264,93 @@ if [ "$db_check_found" = false ]; then
     else
         log "Database file exists, size: $(stat -c%s /home/draw/pipeline/data/draw.db.sqlite) bytes"
         
-        # Get total record count
-        total_records=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
-            "SELECT COUNT(*) FROM dicomlog;" 2>/dev/null || echo "ERROR")
-        log "Total records in dicomlog table: $total_records"
+        # Check database file permissions
+        log "Database file permissions: $(ls -la /home/draw/pipeline/data/draw.db.sqlite)"
         
-        # Show all records in the database
-        log "All records in dicomlog table:"
-        sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
-            "SELECT 'ID: ' || id || ', Series: ' || series_name || ', Status: ' || status || ', Model: ' || model || ', Created: ' || created_on FROM dicomlog ORDER BY created_on DESC;" 2>/dev/null || log "Failed to query all records"
-        
-        # Show records by status
-        log "Records grouped by status:"
-        sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
-            "SELECT status, COUNT(*) as count FROM dicomlog GROUP BY status;" 2>/dev/null || log "Failed to query status groups"
-        
-        # Check if our specific series exists with any status
-        our_series_count=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
-            "SELECT COUNT(*) FROM dicomlog WHERE series_name = '${seriesInstanceUID}';" 2>/dev/null || echo "0")
-        
-        if [ "$our_series_count" -gt 0 ]; then
-            log "Our series '${seriesInstanceUID}' exists in database with details:"
-            sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
-                "SELECT 'ID: ' || id || ', Status: ' || status || ', Model: ' || model || ', Input: ' || input_path || ', Output: ' || COALESCE(output_path, 'NULL') || ', Created: ' || created_on FROM dicomlog WHERE series_name = '${seriesInstanceUID}';" 2>/dev/null || log "Failed to query our series details"
+        # Test basic SQLite connectivity
+        log "Testing SQLite connectivity..."
+        sqlite_test=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite "SELECT 1;" 2>&1)
+        if [ $? -eq 0 ]; then
+            log "SQLite connectivity: SUCCESS"
         else
-            log "Our series '${seriesInstanceUID}' does NOT exist in database"
-            log "Similar series names in database:"
+            log "SQLite connectivity: FAILED - $sqlite_test"
+        fi
+        
+        # Check if the dicomlog table exists
+        log "Checking if dicomlog table exists..."
+        table_exists=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='dicomlog';" 2>&1)
+        if [ -n "$table_exists" ]; then
+            log "dicomlog table exists"
+        else
+            log "dicomlog table does NOT exist!"
+            log "Available tables:"
             sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
-                "SELECT DISTINCT series_name FROM dicomlog ORDER BY series_name;" 2>/dev/null || log "Failed to query series names"
+                "SELECT name FROM sqlite_master WHERE type='table';" 2>&1 || log "Failed to list tables"
+        fi
+        
+        # Get total record count with detailed error handling
+        log "Querying record count..."
+        total_records_result=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
+            "SELECT COUNT(*) FROM dicomlog;" 2>&1)
+        if [ $? -eq 0 ]; then
+            log "Total records in dicomlog table: $total_records_result"
+        else
+            log "Failed to count records: $total_records_result"
+        fi
+        
+        # Only proceed with detailed queries if table exists
+        if [ -n "$table_exists" ]; then
+            # Show all records in the database
+            log "Querying all records in dicomlog table..."
+            all_records_result=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
+                "SELECT 'ID: ' || id || ', Series: ' || series_name || ', Status: ' || status || ', Model: ' || model || ', Created: ' || created_on FROM dicomlog ORDER BY created_on DESC;" 2>&1)
+            if [ $? -eq 0 ]; then
+                log "All records in dicomlog table:"
+                echo "$all_records_result"
+            else
+                log "Failed to query all records: $all_records_result"
+            fi
+            
+            # Show records by status
+            log "Querying records grouped by status..."
+            status_groups_result=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
+                "SELECT status || '|' || COUNT(*) FROM dicomlog GROUP BY status;" 2>&1)
+            if [ $? -eq 0 ]; then
+                log "Records grouped by status:"
+                echo "$status_groups_result"
+            else
+                log "Failed to query status groups: $status_groups_result"
+            fi
+            
+            # Check if our specific series exists with any status
+            log "Checking for our specific series..."
+            our_series_result=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
+                "SELECT COUNT(*) FROM dicomlog WHERE series_name = '${seriesInstanceUID}';" 2>&1)
+            
+            if [ $? -eq 0 ] && [ "$our_series_result" -gt 0 ]; then
+                log "Our series '${seriesInstanceUID}' exists in database with details:"
+                series_details=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
+                    "SELECT 'ID: ' || id || ', Status: ' || status || ', Model: ' || model || ', Input: ' || input_path || ', Output: ' || COALESCE(output_path, 'NULL') || ', Created: ' || created_on FROM dicomlog WHERE series_name = '${seriesInstanceUID}';" 2>&1)
+                if [ $? -eq 0 ]; then
+                    echo "$series_details"
+                else
+                    log "Failed to query our series details: $series_details"
+                fi
+            else
+                log "Our series '${seriesInstanceUID}' does NOT exist in database"
+                log "Listing all series names in database..."
+                series_names_result=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
+                    "SELECT DISTINCT series_name FROM dicomlog ORDER BY series_name;" 2>&1)
+                if [ $? -eq 0 ]; then
+                    log "All series names in database:"
+                    echo "$series_names_result"
+                else
+                    log "Failed to query series names: $series_names_result"
+                fi
+            fi
+        else
+            log "Skipping detailed queries since dicomlog table does not exist"
         fi
     fi
     
