@@ -195,47 +195,6 @@ log "Counting number of files in watch directory..."
 file_count=$(find /home/draw/pipeline/dicom -type f | wc -l)
 log "Number of files in watch directory: $file_count"
 
-# Check if watchdog is running
-log "Checking if watchdog process is running..."
-watchdog_found=false
-max_watchdog_attempts=10  # 5 minutes / 30 seconds = 10 attempts
-
-for attempt in $(seq 1 $max_watchdog_attempts); do
-    log "Watchdog check attempt $attempt/$max_watchdog_attempts..."
-    
-    # Check for Python processes related to the pipeline
-    watchdog_processes=$(ps aux | grep -E "(python.*main\.py|python.*start-pipeline|python.*TASK_copy|python.*task_watch_dir)" | grep -v grep | wc -l)
-    
-    if [ "$watchdog_processes" -gt 0 ]; then
-        log "Found $watchdog_processes watchdog-related process(es) running"
-        log "Watchdog process details:"
-        ps aux | grep -E "(python.*main\.py|python.*start-pipeline|python.*TASK_copy|python.*task_watch_dir)" | grep -v grep
-        watchdog_found=true
-        break
-    else
-        log "No watchdog processes found"
-        log "Current Python processes:"
-        ps aux | grep python | grep -v grep || log "No Python processes found"
-        
-        if [ $attempt -lt $max_watchdog_attempts ]; then
-            log "Waiting 30 seconds before next watchdog check..."
-            sleep 30
-        fi
-    fi
-done
-
-if [ "$watchdog_found" = false ]; then
-    log "Error: Watchdog process not found after 5 minutes"
-    log "Pipeline may not have started correctly. Checking screen sessions:"
-    screen -ls || log "No screen sessions found"
-    log "Checking if pipeline is still running:"
-    ps aux | grep -E "(main\.py|start-pipeline)" | grep -v grep || log "No pipeline processes found"
-    exit 1
-fi
-
-log "Watchdog check completed successfully - file monitoring is active"
-
-
 # Check if the logfile has been created at the logs directory
 # Retry for 5 minutes at 1 minute intervals before giving up and raising an error
 log "Waiting for pipeline log file to be created..."
@@ -255,6 +214,134 @@ if [ "$log_found" = false ]; then
     log "Error: Log file not found after 5 minutes of waiting"
     exit 1
 fi
+
+
+# Check if watchdog is running
+log "Checking if watchdog process is running..."
+watchdog_found=false
+max_watchdog_attempts=10  # 5 minutes / 30 seconds = 10 attempts
+
+# First, let's check the current screen sessions
+log "=== SCREEN SESSION STATUS ==="
+log "Listing all screen sessions:"
+screen -ls 2>&1 || log "No screen sessions or screen command failed"
+
+log "Checking for screen session with pipeline:"
+if screen -ls | grep -q "python main.py start-pipeline"; then
+    log "Found screen session running pipeline"
+else
+    log "No screen session found running pipeline"
+fi
+
+# Check if we can capture screen output
+log "Attempting to capture screen output (if session exists):"
+# Try to get the screen session name/ID
+screen_session=$(screen -ls | grep -E "Detached|Attached" | head -1 | awk '{print $1}' | cut -d'.' -f1)
+if [ -n "$screen_session" ]; then
+    log "Found screen session ID: $screen_session"
+    log "Capturing screen session output:"
+    # Use screen -S to send commands and capture output
+    screen -S "$screen_session" -X hardcopy /tmp/screen_output.txt 2>/dev/null || log "Failed to capture screen output"
+    if [ -f /tmp/screen_output.txt ]; then
+        log "=== SCREEN SESSION OUTPUT ==="
+        cat /tmp/screen_output.txt
+        log "=== END SCREEN SESSION OUTPUT ==="
+        rm -f /tmp/screen_output.txt
+    else
+        log "No screen output captured"
+    fi
+else
+    log "No screen session ID found"
+fi
+
+log "=== END SCREEN SESSION STATUS ==="
+
+for attempt in $(seq 1 $max_watchdog_attempts); do
+    log "Watchdog check attempt $attempt/$max_watchdog_attempts..."
+    
+    # Show all current processes for debugging
+    log "All current processes (filtered for relevant ones):"
+    ps aux | head -1  # Show header
+    ps aux | grep -E "(python|main\.py|start-pipeline|TASK_|draw)" | grep -v grep || log "No relevant processes found"
+    
+    # Check for Python processes related to the pipeline
+    watchdog_processes=$(ps aux | grep -E "(python.*main\.py|python.*start-pipeline|python.*TASK_copy|python.*task_watch_dir)" | grep -v grep | wc -l)
+    
+    log "Found $watchdog_processes watchdog-related processes"
+    
+    if [ "$watchdog_processes" -gt 0 ]; then
+        log "Watchdog process details:"
+        ps aux | grep -E "(python.*main\.py|python.*start-pipeline|python.*TASK_copy|python.*task_watch_dir)" | grep -v grep
+        watchdog_found=true
+        break
+    else
+        log "No specific watchdog processes found"
+        
+        # Check for any Python processes at all
+        python_processes=$(ps aux | grep python | grep -v grep | wc -l)
+        log "Total Python processes running: $python_processes"
+        
+        # Also check for python3 specifically
+        python3_processes=$(ps aux | grep python3 | grep -v grep | wc -l)
+        log "Python3 processes running: $python3_processes"
+        
+        # Check for conda python processes
+        conda_python_processes=$(ps aux | grep -E "(conda|miniconda)" | grep python | grep -v grep | wc -l)
+        log "Conda Python processes running: $conda_python_processes"
+        
+        if [ "$python_processes" -gt 0 ]; then
+            log "=== ALL PYTHON PROCESSES ==="
+            log "Process header:"
+            ps aux | head -1
+            log "All Python processes (including python, python3, and conda environments):"
+            ps aux | grep -E "(python|python3)" | grep -v grep
+            log "=== END PYTHON PROCESSES ==="
+        else
+            log "No Python processes found at all"
+        fi
+        
+        # Additional check for any processes containing 'draw' or 'pipeline'
+        draw_processes=$(ps aux | grep -E "(draw|pipeline)" | grep -v grep | wc -l)
+        log "Draw/Pipeline related processes: $draw_processes"
+        if [ "$draw_processes" -gt 0 ]; then
+            log "Draw/Pipeline process details:"
+            ps aux | grep -E "(draw|pipeline)" | grep -v grep
+        fi
+        
+        # Check screen sessions again in each iteration
+        log "Re-checking screen sessions:"
+        screen -ls 2>&1 || log "No screen sessions"
+        
+        if [ $attempt -lt $max_watchdog_attempts ]; then
+            log "Waiting 30 seconds before next watchdog check..."
+            sleep 30
+        fi
+    fi
+done
+
+if [ "$watchdog_found" = false ]; then
+    log "Error: Watchdog process not found after 5 minutes"
+    log "=== FINAL DEBUGGING INFORMATION ==="
+    log "Final screen session check:"
+    screen -ls 2>&1 || log "No screen sessions found"
+    
+    log "Final process check:"
+    ps aux | grep -E "(python|main|start|pipeline|draw)" | grep -v grep || log "No pipeline-related processes found"
+    
+    log "Checking if screen session died - looking for any detached sessions:"
+    screen -wipe 2>&1 || log "Screen wipe failed or no sessions"
+    
+    log "Checking system logs for screen/python errors:"
+    tail -20 /var/log/syslog 2>/dev/null || log "Cannot access system logs"
+    
+    log "=== END FINAL DEBUGGING ==="
+    exit 1
+fi
+
+log "Watchdog check completed successfully - file monitoring is active"
+
+
+
 
 # Check the newly created database using alembic. 
 # This database is created in the previous step
