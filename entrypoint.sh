@@ -151,11 +151,13 @@ log "Creating necessary directories..."
 mkdir -p /home/draw/pipeline/logs
 mkdir -p /home/draw/copy_dicom/files
 
-# Start the pipeline in a detached screen session
-log "Starting the pipeline in a detached screen session..."
+# Start the pipeline directly in background
+log "Starting the pipeline directly in background..."
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate draw
-screen -d -m python main.py start-pipeline
+nohup python main.py start-pipeline > /home/draw/pipeline/logs/pipeline_output.log 2>&1 &
+pipeline_pid=$!
+log "Pipeline started with PID: $pipeline_pid"
 
 # Wait for pipeline to start
 log "Waiting for pipeline to initialize..."
@@ -221,40 +223,26 @@ log "Checking if watchdog process is running..."
 watchdog_found=false
 max_watchdog_attempts=10  # 5 minutes / 30 seconds = 10 attempts
 
-# First, let's check the current screen sessions
-log "=== SCREEN SESSION STATUS ==="
-log "Listing all screen sessions:"
-screen -ls 2>&1 || log "No screen sessions or screen command failed"
-
-log "Checking for screen session with pipeline:"
-if screen -ls | grep -q "python main.py start-pipeline"; then
-    log "Found screen session running pipeline"
+# Check pipeline process status
+log "=== PIPELINE PROCESS STATUS ==="
+log "Checking if pipeline process is still running..."
+if kill -0 $pipeline_pid 2>/dev/null; then
+    log "Pipeline process (PID: $pipeline_pid) is running"
 else
-    log "No screen session found running pipeline"
+    log "Pipeline process (PID: $pipeline_pid) is not running"
 fi
 
-# Check if we can capture screen output
-log "Attempting to capture screen output (if session exists):"
-# Try to get the screen session name/ID
-screen_session=$(screen -ls | grep -E "Detached|Attached" | head -1 | awk '{print $1}' | cut -d'.' -f1)
-if [ -n "$screen_session" ]; then
-    log "Found screen session ID: $screen_session"
-    log "Capturing screen session output:"
-    # Use screen -S to send commands and capture output
-    screen -S "$screen_session" -X hardcopy /tmp/screen_output.txt 2>/dev/null || log "Failed to capture screen output"
-    if [ -f /tmp/screen_output.txt ]; then
-        log "=== SCREEN SESSION OUTPUT ==="
-        cat /tmp/screen_output.txt
-        log "=== END SCREEN SESSION OUTPUT ==="
-        rm -f /tmp/screen_output.txt
-    else
-        log "No screen output captured"
-    fi
+# Show pipeline output log
+log "Pipeline output log:"
+if [ -f /home/draw/pipeline/logs/pipeline_output.log ]; then
+    log "=== PIPELINE OUTPUT LOG ==="
+    cat /home/draw/pipeline/logs/pipeline_output.log
+    log "=== END PIPELINE OUTPUT LOG ==="
 else
-    log "No screen session ID found"
+    log "Pipeline output log not found"
 fi
 
-log "=== END SCREEN SESSION STATUS ==="
+log "=== END PIPELINE PROCESS STATUS ==="
 
 for attempt in $(seq 1 $max_watchdog_attempts); do
     log "Watchdog check attempt $attempt/$max_watchdog_attempts..."
