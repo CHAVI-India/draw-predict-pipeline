@@ -24,6 +24,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     screen \
     sqlite3 \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user and set up environment with specific UID first
