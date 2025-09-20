@@ -190,6 +190,51 @@ if ! find /home/draw/copy_dicom/files -type f -name "*.dcm" -exec mv {} /home/dr
     exit 1
 fi
 
+# Count the number of files that are in the watch directory
+log "Counting number of files in watch directory..."
+file_count=$(find /home/draw/pipeline/dicom -type f | wc -l)
+log "Number of files in watch directory: $file_count"
+
+# Check if watchdog is running
+log "Checking if watchdog process is running..."
+watchdog_found=false
+max_watchdog_attempts=10  # 5 minutes / 30 seconds = 10 attempts
+
+for attempt in $(seq 1 $max_watchdog_attempts); do
+    log "Watchdog check attempt $attempt/$max_watchdog_attempts..."
+    
+    # Check for Python processes related to the pipeline
+    watchdog_processes=$(ps aux | grep -E "(python.*main\.py|python.*start-pipeline|python.*TASK_copy|python.*task_watch_dir)" | grep -v grep | wc -l)
+    
+    if [ "$watchdog_processes" -gt 0 ]; then
+        log "Found $watchdog_processes watchdog-related process(es) running"
+        log "Watchdog process details:"
+        ps aux | grep -E "(python.*main\.py|python.*start-pipeline|python.*TASK_copy|python.*task_watch_dir)" | grep -v grep
+        watchdog_found=true
+        break
+    else
+        log "No watchdog processes found"
+        log "Current Python processes:"
+        ps aux | grep python | grep -v grep || log "No Python processes found"
+        
+        if [ $attempt -lt $max_watchdog_attempts ]; then
+            log "Waiting 30 seconds before next watchdog check..."
+            sleep 30
+        fi
+    fi
+done
+
+if [ "$watchdog_found" = false ]; then
+    log "Error: Watchdog process not found after 5 minutes"
+    log "Pipeline may not have started correctly. Checking screen sessions:"
+    screen -ls || log "No screen sessions found"
+    log "Checking if pipeline is still running:"
+    ps aux | grep -E "(main\.py|start-pipeline)" | grep -v grep || log "No pipeline processes found"
+    exit 1
+fi
+
+log "Watchdog check completed successfully - file monitoring is active"
+
 
 # Check if the logfile has been created at the logs directory
 # Retry for 5 minutes at 1 minute intervals before giving up and raising an error
