@@ -190,9 +190,6 @@ if ! find /home/draw/copy_dicom/files -type f -name "*.dcm" -exec mv {} /home/dr
     exit 1
 fi
 
-# Wait for 60 seconds for pipeline to detect files
-log "Waiting for pipeline to detect DICOM files..."
-sleep 60
 
 # Check if the logfile has been created at the logs directory
 # Retry for 5 minutes at 1 minute intervals before giving up and raising an error
@@ -214,25 +211,60 @@ if [ "$log_found" = false ]; then
     exit 1
 fi
 
-# If the logfile is found check if the DICOM data has been recognized
-# We will check if the log file contains reference to the dicom directory
-log "Checking if DICOM data has been recognized by pipeline..."
-dicom_recognized=false
-for i in {1..10}; do
-    if grep -q "detected" /home/draw/pipeline/logs/logfile.log; then
-        log "DICOM data recognized"
-        dicom_recognized=true
+# Check the newly created database using alembic. 
+# This database is created in the previous step
+# We need to query the database to check if the series instance uid is now at the INIT status 
+# If not repeat the check for at least 5 minutes at 30 sec interval before exiting. 
+# The database definition is available at alembic\versions\de871710e5d0_db_config.py. The column name to search for is series_name
+# The series instance UID value will match the series instance UID available in the environment variables. seriesInstanceUID
+
+log "Checking database for series instance UID: ${seriesInstanceUID}"
+db_check_found=false
+max_attempts=10  # 5 minutes / 30 seconds = 10 attempts
+
+for attempt in $(seq 1 $max_attempts); do
+    log "Database check attempt $attempt/$max_attempts..."
+    
+    # Query the database using sqlite3 to check if series_name exists with INIT status
+    db_result=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
+        "SELECT COUNT(*) FROM dicomlog WHERE series_name = '${seriesInstanceUID}' AND status = 'INIT';" 2>/dev/null || echo "0")
+    
+    if [ "$db_result" -gt 0 ]; then
+        log "Found series instance UID '${seriesInstanceUID}' with INIT status in database"
+        db_check_found=true
         break
+    else
+        # Check if the series exists with any status
+        series_exists=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
+            "SELECT COUNT(*) FROM dicomlog WHERE series_name = '${seriesInstanceUID}';" 2>/dev/null || echo "0")
+        
+        if [ "$series_exists" -gt 0 ]; then
+            # Get the current status
+            current_status=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
+                "SELECT status FROM dicomlog WHERE series_name = '${seriesInstanceUID}' LIMIT 1;" 2>/dev/null || echo "UNKNOWN")
+            log "Series instance UID '${seriesInstanceUID}' found with status: $current_status"
+        else
+            log "Series instance UID '${seriesInstanceUID}' not found in database yet"
+        fi
+        
+        if [ $attempt -lt $max_attempts ]; then
+            log "Waiting 30 seconds before next attempt..."
+            sleep 30
+        fi
     fi
-    sleep 30
-    log "DICOM data not recognized, retrying... ($i/10)"
-done    
-if [ "$dicom_recognized" = false ]; then
-    log "Error: DICOM data not recognized in the pipeline after 5 minutes of waiting"
-    log "Contents of the log file:"
-    cat /home/draw/pipeline/logs/logfile.log
+done
+
+if [ "$db_check_found" = false ]; then
+    log "Error: Series instance UID '${seriesInstanceUID}' with INIT status not found in database after 5 minutes"
+    log "Checking database contents for debugging:"
+    sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
+        "SELECT series_name, status, created_on FROM dicomlog ORDER BY created_on DESC LIMIT 10;" 2>/dev/null || log "Failed to query database"
     exit 1
 fi
+
+log "Database check completed successfully - series ready for processing"
+
+
 
 # Wait for the automatic segmentation to complete by checking for AUTOSEGMENT.RT.dcm
 log "Waiting for auto-segmentation to complete..."
