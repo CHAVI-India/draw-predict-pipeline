@@ -256,9 +256,46 @@ done
 
 if [ "$db_check_found" = false ]; then
     log "Error: Series instance UID '${seriesInstanceUID}' with INIT status not found in database after 5 minutes"
-    log "Checking database contents for debugging:"
-    sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
-        "SELECT series_name, status, created_on FROM dicomlog ORDER BY created_on DESC LIMIT 10;" 2>/dev/null || log "Failed to query database"
+    log "=== DATABASE DEBUGGING INFORMATION ==="
+    
+    # Check if database file exists
+    if [ ! -f /home/draw/pipeline/data/draw.db.sqlite ]; then
+        log "ERROR: Database file does not exist at /home/draw/pipeline/data/draw.db.sqlite"
+    else
+        log "Database file exists, size: $(stat -c%s /home/draw/pipeline/data/draw.db.sqlite) bytes"
+        
+        # Get total record count
+        total_records=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
+            "SELECT COUNT(*) FROM dicomlog;" 2>/dev/null || echo "ERROR")
+        log "Total records in dicomlog table: $total_records"
+        
+        # Show all records in the database
+        log "All records in dicomlog table:"
+        sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
+            "SELECT 'ID: ' || id || ', Series: ' || series_name || ', Status: ' || status || ', Model: ' || model || ', Created: ' || created_on FROM dicomlog ORDER BY created_on DESC;" 2>/dev/null || log "Failed to query all records"
+        
+        # Show records by status
+        log "Records grouped by status:"
+        sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
+            "SELECT status, COUNT(*) as count FROM dicomlog GROUP BY status;" 2>/dev/null || log "Failed to query status groups"
+        
+        # Check if our specific series exists with any status
+        our_series_count=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
+            "SELECT COUNT(*) FROM dicomlog WHERE series_name = '${seriesInstanceUID}';" 2>/dev/null || echo "0")
+        
+        if [ "$our_series_count" -gt 0 ]; then
+            log "Our series '${seriesInstanceUID}' exists in database with details:"
+            sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
+                "SELECT 'ID: ' || id || ', Status: ' || status || ', Model: ' || model || ', Input: ' || input_path || ', Output: ' || COALESCE(output_path, 'NULL') || ', Created: ' || created_on FROM dicomlog WHERE series_name = '${seriesInstanceUID}';" 2>/dev/null || log "Failed to query our series details"
+        else
+            log "Our series '${seriesInstanceUID}' does NOT exist in database"
+            log "Similar series names in database:"
+            sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
+                "SELECT DISTINCT series_name FROM dicomlog ORDER BY series_name;" 2>/dev/null || log "Failed to query series names"
+        fi
+    fi
+    
+    log "=== END DATABASE DEBUGGING ==="
     exit 1
 fi
 
