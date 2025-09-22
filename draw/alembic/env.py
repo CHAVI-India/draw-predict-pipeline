@@ -1,4 +1,5 @@
 from logging.config import fileConfig
+import os
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
@@ -6,6 +7,15 @@ from sqlalchemy import pool
 from alembic import context
 from draw.config import YML_ENV
 from draw.dao.table import DicomLog
+
+# Debug: Print working directory and environment info
+print(f"[ALEMBIC DEBUG] Current working directory: {os.getcwd()}")
+print(f"[ALEMBIC DEBUG] YML_ENV type: {type(YML_ENV)}")
+print(f"[ALEMBIC DEBUG] YML_ENV content: {YML_ENV}")
+if YML_ENV and 'DB_URL' in YML_ENV:
+    print(f"[ALEMBIC DEBUG] DB_URL from YML_ENV: {YML_ENV['DB_URL']}")
+else:
+    print(f"[ALEMBIC DEBUG] ERROR: YML_ENV is None or missing DB_URL")
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
