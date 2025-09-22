@@ -87,7 +87,23 @@ pwd
 log "Checking env.draw.yml file..."
 if [ -f "env.draw.yml" ]; then
     log "env.draw.yml exists"
-    cat env.draw.yml
+    log "File size: $(wc -c < env.draw.yml) bytes"
+    log "File content with line endings visible:"
+    cat -A env.draw.yml
+    log "Testing YAML parsing with Python:"
+    python -c "
+import yaml
+try:
+    with open('env.draw.yml', 'r') as f:
+        data = yaml.safe_load(f)
+    print('YAML parsing successful:')
+    for key, value in data.items():
+        print(f'  {key}: {value}')
+except Exception as e:
+    print(f'YAML parsing failed: {e}')
+    import traceback
+    traceback.print_exc()
+"
 else
     log "ERROR: env.draw.yml file not found"
     ls -la env*
