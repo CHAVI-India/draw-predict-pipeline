@@ -77,6 +77,26 @@ log "Activated conda environment"
 log "Creating data directory for database..."
 mkdir -p /home/draw/pipeline/data
 
+# Debug: Check directory permissions and ownership
+log "Checking data directory permissions..."
+ls -la /home/draw/pipeline/data/
+whoami
+pwd
+
+# Debug: Check if env.draw.yml exists and is readable
+log "Checking env.draw.yml file..."
+if [ -f "env.draw.yml" ]; then
+    log "env.draw.yml exists"
+    cat env.draw.yml
+else
+    log "ERROR: env.draw.yml file not found"
+    ls -la env*
+fi
+
+# Debug: Test SQLite directly
+log "Testing SQLite database creation directly..."
+sqlite3 /home/draw/pipeline/data/test.db "CREATE TABLE test (id INTEGER); DROP TABLE test;" && log "SQLite test successful" || log "SQLite test failed"
+
 # Next we need to create the database using alembic
 # First check if alembic is available in the conda environment
 if [ -z "$(which alembic)" ]; then
