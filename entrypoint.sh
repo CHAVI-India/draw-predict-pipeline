@@ -122,6 +122,23 @@ else
     log "alembic is available in the conda environment"
 fi 
 
+# Debug: Test the exact same environment loading that Alembic uses
+log "Testing Alembic environment loading..."
+python -c "
+import sys
+sys.path.insert(0, '.')
+try:
+    from draw.config import YML_ENV
+    print('YML_ENV loaded successfully:')
+    for key, value in YML_ENV.items():
+        print(f'  {key}: {value}')
+    print(f'DB_URL specifically: {YML_ENV[\"DB_URL\"]}')
+except Exception as e:
+    print(f'Error loading YML_ENV: {e}')
+    import traceback
+    traceback.print_exc()
+"
+
 # Create database using alembic
 log "Running alembic upgrade to create database..."
 alembic upgrade head
