@@ -73,6 +73,10 @@ log "Changed directory to home directory"
 source ~/miniconda3/etc/profile.d/conda.sh && conda activate draw
 log "Activated conda environment"
 
+# Create parent directory for database before running alembic
+log "Creating data directory for database..."
+mkdir -p /home/draw/pipeline/data
+
 # Next we need to create the database using alembic
 # First check if alembic is available in the conda environment
 if [ -z "$(which alembic)" ]; then
@@ -83,7 +87,7 @@ else
 fi 
 
 # Create database using alembic
-
+log "Running alembic upgrade to create database..."
 alembic upgrade head
 
 
