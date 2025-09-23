@@ -113,6 +113,17 @@ fi
 log "Testing SQLite database creation directly..."
 sqlite3 /home/draw/pipeline/data/test.db "CREATE TABLE test (id INTEGER); DROP TABLE test;" && log "SQLite test successful" || log "SQLite test failed"
 
+echo "2025-09-22 17:10:19 [INFO] Testing SQLite database creation directly..."
+sqlite3 /home/draw/pipeline/data/draw.db.sqlite "CREATE TABLE IF NOT EXISTS test (id INTEGER);" && echo "2025-09-22 17:10:19 [INFO] SQLite test successful" || echo "2025-09-22 17:10:19 [ERROR] SQLite test failed"
+
+echo "2025-09-22 17:10:19 [INFO] Testing SQLite journal file creation (transaction test)..."
+sqlite3 /home/draw/pipeline/data/draw.db.sqlite "BEGIN TRANSACTION; INSERT INTO test VALUES (1); COMMIT;" && echo "2025-09-22 17:10:19 [INFO] SQLite transaction test successful" || echo "2025-09-22 17:10:19 [ERROR] SQLite transaction test failed"
+
+echo "2025-09-22 17:10:19 [INFO] Checking for journal files after transaction..."
+ls -la /home/draw/pipeline/data/
+
+rm -f /home/draw/pipeline/data/draw.db.sqlite*
+
 # Next we need to create the database using alembic
 # First check if alembic is available in the conda environment
 if [ -z "$(which alembic)" ]; then
