@@ -83,6 +83,19 @@ ls -la /home/draw/pipeline/data/
 whoami
 pwd
 
+# AWS Batch specific checks
+log "AWS Batch environment checks..."
+log "Container user: $(whoami)"
+log "Container UID/GID: $(id)"
+log "Available disk space:"
+df -h /home/draw/pipeline/data/
+log "Directory ownership and permissions:"
+ls -ld /home/draw/pipeline/data/
+log "Parent directory permissions:"
+ls -ld /home/draw/pipeline/
+log "File system type:"
+stat -f /home/draw/pipeline/data/ 2>/dev/null || log "stat -f not available"
+
 # Debug: Check if env.draw.yml exists and is readable
 log "Checking env.draw.yml file..."
 if [ -f "env.draw.yml" ]; then
@@ -152,7 +165,40 @@ except Exception as e:
 
 # Create database using alembic
 log "Running alembic upgrade to create database..."
-alembic upgrade head
+
+# Test SQLite permissions before running Alembic
+log "Testing SQLite database creation permissions..."
+test_db_path="/home/draw/pipeline/data/test_permissions.db"
+if sqlite3 "$test_db_path" "CREATE TABLE test (id INTEGER); INSERT INTO test VALUES (1); SELECT * FROM test; DROP TABLE test;" 2>/dev/null; then
+    log "SQLite permissions test: SUCCESS"
+    rm -f "$test_db_path"
+else
+    log "ERROR: SQLite permissions test FAILED - cannot create database files"
+    log "This indicates a file system permission issue in the AWS Batch environment"
+    exit 1
+fi
+
+# Run Alembic with detailed error handling
+log "Running Alembic upgrade with error handling..."
+if ! alembic upgrade head 2>&1; then
+    log "ERROR: Alembic upgrade failed"
+    log "Checking Alembic configuration..."
+    log "Alembic version: $(alembic --version 2>&1 || echo 'Alembic not found')"
+    log "Current directory: $(pwd)"
+    log "Alembic.ini exists: $(test -f alembic.ini && echo 'YES' || echo 'NO')"
+    log "Alembic script location: $(test -d draw/alembic && echo 'YES' || echo 'NO')"
+    
+    # Try to get more detailed error information
+    log "Attempting Alembic current to check database state..."
+    alembic current 2>&1 || log "Alembic current command failed"
+    
+    log "Attempting Alembic history to check migrations..."
+    alembic history 2>&1 || log "Alembic history command failed"
+    
+    exit 1
+fi
+
+log "Alembic upgrade completed successfully"
 
 
 # Check if the database is created successfully. The database is created as a sqlite database called draw.db.sqlite in the data directory.
