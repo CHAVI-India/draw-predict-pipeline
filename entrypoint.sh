@@ -77,9 +77,17 @@ log "Activated conda environment"
 log "Creating data directory for database..."
 mkdir -p /home/draw/pipeline/data
 
+# Ensure proper ownership and permissions for the data directory
+log "Setting proper permissions for data directory..."
+chmod 755 /home/draw/pipeline/data
+# In case we're running as root in AWS Batch, ensure the draw user owns the directory
+if [ "$(whoami)" = "root" ]; then
+    chown -R draw:draw /home/draw/pipeline
+fi
+
 # Debug: Check directory permissions and ownership
 log "Checking data directory permissions..."
-ls -la /home/draw/pipeline/data/
+ls -la /home/draw/pipeline
 whoami
 pwd
 
