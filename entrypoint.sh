@@ -485,10 +485,10 @@ for attempt in $(seq 1 $max_attempts); do
     
     # Query the database using sqlite3 to check if series_name exists with INIT status
     db_result=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
-        "SELECT COUNT(*) FROM dicomlog WHERE series_name = '${seriesInstanceUID}' AND status = 'INIT';" 2>/dev/null || echo "0")
+        "SELECT COUNT(*) FROM dicomlog WHERE series_name = '${seriesInstanceUID}' ;" 2>/dev/null || echo "0")
     
     if [ "$db_result" -gt 0 ]; then
-        log "Found series instance UID '${seriesInstanceUID}' with INIT status in database"
+        log "Found series instance UID '${seriesInstanceUID}' in database"
         db_check_found=true
         break
     else
@@ -514,6 +514,7 @@ done
 
 if [ "$db_check_found" = false ]; then
     log "Error: Series instance UID '${seriesInstanceUID}' with INIT status not found in database after 5 minutes"
+    cat /home/draw/pipeline/logs/pipeline_output.log
     log "=== DATABASE DEBUGGING INFORMATION ==="
     
     # Check if database file exists
