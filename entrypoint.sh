@@ -471,7 +471,6 @@ log "Watchdog check completed successfully - file monitoring is active"
 
 # Check the newly created database using alembic. 
 # This database is created in the previous step
-# We need to query the database to check if the series instance uid is now at the INIT status 
 # If not repeat the check for at least 5 minutes at 30 sec interval before exiting. 
 # The database definition is available at alembic\versions\de871710e5d0_db_config.py. The column name to search for is series_name
 # The series instance UID value will match the series instance UID available in the environment variables. seriesInstanceUID
@@ -623,37 +622,82 @@ log "Database check completed successfully - series ready for processing"
 
 # Wait for the automatic segmentation to complete by checking for AUTOSEGMENT.RT.dcm
 log "Waiting for auto-segmentation to complete..."
-if command -v inotifywait &> /dev/null; then
-    log "Using inotifywait to monitor for file creation..."
-    if timeout 1200 inotifywait -e create --format '%f' -q /home/draw/pipeline/output/ | grep -q "AUTOSEGMENT.RT.dcm"; then
-        log "Auto-segmentation file found"
-    else
-        # Check if file exists in case it was created before inotify started watching
-        if [ -f "/home/draw/pipeline/output/AUTOSEGMENT.RT.dcm" ]; then
-            log "Auto-segmentation file found"
-        else
-            log "Error: Auto-segmentation file not found after 20 minutes of waiting"
-            log "Contents of the log file:"
-            cat /home/draw/pipeline/logs/logfile.log
-            exit 1
-        fi
-    fi
+
+# Check if file already exists
+if [ -f "/home/draw/pipeline/output/AUTOSEGMENT.RT.dcm" ]; then
+    log "Auto-segmentation file already exists"
 else
-    log "inotify-tools not available, falling back to polling..."
+    # Use polling approach with proper 20-minute timeout
     auto_segment_file_found=false
-    for i in {1..40}; do
-        if [ -f /home/draw/pipeline/output/AUTOSEGMENT.RT.dcm ]; then
-            log "Auto-segmentation file found"
+    start_time=$(date +%s)
+    timeout_duration=1200  # 20 minutes
+    check_interval=5       # Check every 5 seconds
+    
+    log "Starting polling for auto-segmentation file with 20-minute timeout..."
+    
+    while [ $(($(date +%s) - start_time)) -lt $timeout_duration ]; do
+        # Check if the file exists
+        if [ -f "/home/draw/pipeline/output/AUTOSEGMENT.RT.dcm" ]; then
+            elapsed_time=$(($(date +%s) - start_time))
+            log "Auto-segmentation file found after ${elapsed_time} seconds"
             auto_segment_file_found=true
             break
         fi
-        sleep 30
-        log "Auto-segmentation file not found, retrying... ($i/40)"
-    done    
+        
+        # Log progress every minute (12 checks * 5 seconds = 60 seconds)
+        checks_done=$(( ($(date +%s) - start_time) / check_interval ))
+        if [ $((checks_done % 12)) -eq 0 ] && [ $checks_done -gt 0 ]; then
+            elapsed_minutes=$(( ($(date +%s) - start_time) / 60 ))
+            log "Auto-segmentation file not found yet, waiting... (${elapsed_minutes} minutes elapsed)"
+        fi
+        
+        # Sleep for the check interval
+        sleep $check_interval
+    done
+    
     if [ "$auto_segment_file_found" = false ]; then
         log "Error: Auto-segmentation file not found after 20 minutes of waiting"
-        log "Contents of the logfile:"
+        log "Contents of the log file:"
         cat /home/draw/pipeline/logs/logfile.log
+        
+        log "Contents of the dicomlog table for debugging:"
+        python3 -c "
+import sqlite3
+import os
+
+db_path = '/home/draw/pipeline/data/draw.db.sqlite'
+table_name = os.environ.get('TABLE_NAME', 'dicomlog')
+
+try:
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    # Get column names
+    cursor.execute(f'PRAGMA table_info({table_name})')
+    columns = [col[1] for col in cursor.fetchall()]
+    
+    # Get all records from the table
+    cursor.execute(f'SELECT * FROM {table_name}')
+    rows = cursor.fetchall()
+    
+    if not rows:
+        print(f'No records found in {table_name} table')
+    else:
+        print(f'Found {len(rows)} records in {table_name} table:')
+        print('Columns: ' + ', '.join(columns))
+        print('-' * 80)
+        
+        for i, row in enumerate(rows, 1):
+            print(f'Record {i}:')
+            for col, val in zip(columns, row):
+                print(f'  {col}: {val}')
+            print('-' * 40)
+    
+    conn.close()
+    
+except Exception as e:
+    print(f'Error querying database: {e}')
+"
         exit 1
     fi
 fi
