@@ -78,17 +78,14 @@ def run_prediction_with_retry(seg_model_name, all_dcm_files, data_path):
 
 import sqlite3
 import os
+from draw.config import DB_CONFIG
 
 def query():
     # This function returns records whose status = 'INIT'
-    file_path = os.path.abspath(__file__) # /home/koustav/Work/Pipeline/draw-seg-v3_021224/draw/pipeline/TASK_predict.py
-    parts = file_path.split(os.sep)
-    base_path = os.sep.join(parts[:parts.index('draw')]) # /home/koustav/Work/Pipeline/draw-seg-v3_021224/
-    db_directory = base_path + '/data' # /home/koustav/Work/Pipeline/draw-seg-v3_021224/data
-
-    # db_directory = "/home/koustav/Work/Pipeline/draw-seg-v3_021224/data"
-    db_name = "draw.db.sqlite"
-    db_path = os.path.join(db_directory, db_name)
+    # Extract the database path from the DB_URL configuration
+    db_url = DB_CONFIG["URL"]
+    # Remove the sqlite:/// prefix to get the actual file path
+    db_path = db_url.replace("sqlite:///", "")
 
     try:
         connection = sqlite3.connect(db_path)
