@@ -50,7 +50,7 @@ RUN mkdir -p \
     $APP_HOME/pipeline/dicom \
     $APP_HOME/copy_dicom \
     $APP_HOME/pipeline/bin && \
-    find $APP_HOME -type d -exec chmod 755 {} \;
+    find $APP_HOME -type d -exec chmod 777 {} \;
 
 # Copy application files
 COPY --chown=$APP_USER:$APP_USER . $APP_HOME/pipeline/    
@@ -92,7 +92,7 @@ USER root
 
 # Copy entrypoint script and set proper permissions
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod 755 /entrypoint.sh && \
+RUN chmod 777 /entrypoint.sh && \
     chown $APP_USER:$APP_USER /entrypoint.sh
 
 # Switch back to non-root user for runtime
