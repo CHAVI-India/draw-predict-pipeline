@@ -307,17 +307,35 @@ if ! unzip -q "${local_zip_path}" -d "/home/draw/copy_dicom/files/"; then
     exit 1
 fi
 
-# Move DICOM files to watch directory
+# Move DICOM files to watch directory by creating a series directory
 log "Moving DICOM files to watch directory..."
-if ! find /home/draw/copy_dicom/files -type f -name "*.dcm" -exec mv {} /home/draw/pipeline/dicom/ \;; then
-    log "Error: Failed to move DICOM files"
+
+# Create a unique directory name based on seriesInstanceUID
+series_dir="/home/draw/pipeline/dicom/${seriesInstanceUID}"
+log "Creating series directory: ${series_dir}"
+
+# Create the series directory
+if ! mkdir -p "${series_dir}"; then
+    log "Error: Failed to create series directory"
     exit 1
 fi
 
-# Count the number of files that are in the watch directory
-log "Counting number of files in watch directory..."
-file_count=$(find /home/draw/pipeline/dicom -type f | wc -l)
-log "Number of files in watch directory: $file_count"
+# Move all DICOM files into the series directory
+if ! find /home/draw/copy_dicom/files -type f -name "*.dcm" -exec mv {} "${series_dir}/" \;; then
+    log "Error: Failed to move DICOM files to series directory"
+    exit 1
+fi
+
+log "Successfully moved DICOM files to series directory: ${series_dir}"
+
+# Count the number of files that are in the series directory
+log "Counting number of files in series directory..."
+file_count=$(find "${series_dir}" -type f -name "*.dcm" | wc -l)
+log "Number of DICOM files in series directory: $file_count"
+
+# Also count total files in watch directory for reference
+total_files=$(find /home/draw/pipeline/dicom -type f | wc -l)
+log "Total files in watch directory: $total_files"
 
 # Check if the logfile has been created at the logs directory
 # Retry for 5 minutes at 1 minute intervals before giving up and raising an error
