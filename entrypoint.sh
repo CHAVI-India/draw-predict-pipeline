@@ -58,6 +58,43 @@ log "  Patient ID: ${patientID}"
 log "  Transaction Token: ${transactionToken:0:4}...${transactionToken: -4}"  # Show partial token for security
 log "  File Upload ID: ${fileUploadId}"
 
+
+# Check for CUDA availability
+log "=== Checking CUDA/GPU Availability ==="
+if command -v nvidia-smi &> /dev/null; then
+    log "nvidia-smi found, checking GPU status:"
+    if nvidia-smi; then
+        log "nvidia-smi executed successfully"
+    else
+        log "Warning: nvidia-smi command failed with exit code $?"
+    fi
+else
+    log "Warning: nvidia-smi not found"
+fi
+
+log "Checking CUDA availability with Python:"
+python3 -c "
+import torch
+print(f'PyTorch version: {torch.__version__}')
+print(f'CUDA available: {torch.cuda.is_available()}')
+if torch.cuda.is_available():
+    print(f'CUDA version: {torch.version.cuda}')
+    print(f'Number of GPUs: {torch.cuda.device_count()}')
+    for i in range(torch.cuda.device_count()):
+        print(f'GPU {i}: {torch.cuda.get_device_name(i)}')
+        print(f'GPU {i} Memory: {torch.cuda.get_device_properties(i).total_memory / 1024**3:.1f} GB')
+        try:
+            free_mem, total_mem = torch.cuda.mem_get_info(i)
+            print(f'GPU {i} Memory Free: {free_mem / 1024**3:.1f} GB')
+        except:
+            print(f'GPU {i} Memory info unavailable')
+else:
+    print('No CUDA devices available')
+" 2>&1 | while IFS= read -r line; do log "$line"; done
+
+log "=== CUDA Check Complete ==="
+
+
 # Main execution starts here
 log "=== nnUNet Autosegmentation Job Started ==="
 
