@@ -283,7 +283,7 @@ log "Pipeline started with PID: $pipeline_pid"
 
 # Wait for pipeline to start
 log "Waiting for pipeline to initialize..."
-sleep 10
+sleep 30
 
 
 # Download DICOM zip from S3

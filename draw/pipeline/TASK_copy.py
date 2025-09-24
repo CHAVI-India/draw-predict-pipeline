@@ -47,6 +47,7 @@ def determine_model(dir_path):
     
     try:
         model_name = list(PROTOCOL_TO_MODEL.values())[0]
+        LOG.info(f"Model Name: {model_name}")
         # one_file_name = glob.glob(os.path.join(dir_path, DCM_REGEX), recursive=True)[0]
         # ds = dcmread(one_file_name)
         # dcm_protocol_name = ds.ProtocolName.lower()
@@ -72,6 +73,7 @@ def on_modified(event: FileSystemEvent):
         and src_path.resolve() != REDUNDANT_EVENT_PATH
         and not event.is_synthetic
     ):
+        LOG.info(f"MODIFIED {src_path}")
         modification_event_trigger(event.src_path)
 
 def on_created(event: FileSystemEvent):
@@ -81,6 +83,7 @@ def on_created(event: FileSystemEvent):
         and src_path.resolve() != REDUNDANT_EVENT_PATH
         and not event.is_synthetic
     ):
+        LOG.info(f"CREATED {src_path}")
         modification_event_trigger(event.src_path)
 
 def on_moved(event: FileSystemEvent):
@@ -100,7 +103,8 @@ def modification_event_trigger(src_path: str):
     try:
         dir_path = src_path
         series_name = get_uniq_id_for_sample(src_path)
-
+        LOG.info(f"Series Name: {series_name}")
+        LOG.info(f"Dir Path: {dir_path}")
         if (
             series_name is None
             or not os.path.exists(dir_path)
@@ -111,6 +115,7 @@ def modification_event_trigger(src_path: str):
 
         wait_copy_finish(dir_path)
         model_name = determine_model(dir_path)
+        LOG.info(f"Model Name: {model_name}")
 
         if model_name is not None:
             dcm = DicomLog(
