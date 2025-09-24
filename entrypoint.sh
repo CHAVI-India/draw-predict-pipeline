@@ -300,29 +300,27 @@ if [[ ! -s "${local_zip_path}" ]]; then
     exit 1
 fi
 
-# Extract the zip file
-log "Extracting DICOM zip..."
-if ! unzip -q "${local_zip_path}" -d "/home/draw/copy_dicom/files/"; then
+# Create a temporary subdirectory named after the series instance UID
+temp_series_dir="/home/draw/copy_dicom/${seriesInstanceUID}"
+log "Creating temporary directory for extraction: ${temp_series_dir}"
+rm -rf "${temp_series_dir}"
+mkdir -p "${temp_series_dir}"
+
+# Extract the zip file directly into the new temporary directory
+log "Extracting DICOM files to ${temp_series_dir}..."
+if ! unzip -q "${local_zip_path}" -d "${temp_series_dir}"; then
     log "Error: Failed to extract DICOM zip"
     exit 1
 fi
 
-# Move DICOM files to watch directory by creating a series directory
-log "Moving DICOM files to watch directory..."
+# Define the final watch directory path
+watch_dir="/home/draw/pipeline/dicom"
+series_dir="${watch_dir}/${seriesInstanceUID}"
 
-# Create a unique directory name based on seriesInstanceUID
-series_dir="/home/draw/pipeline/dicom/${seriesInstanceUID}"
-log "Creating series directory: ${series_dir}"
-
-# Create the series directory
-if ! mkdir -p "${series_dir}"; then
-    log "Error: Failed to create series directory"
-    exit 1
-fi
-
-# Move all DICOM files into the series directory
-if ! find /home/draw/copy_dicom/files -type f -name "*.dcm" -exec mv {} "${series_dir}/" \;; then
-    log "Error: Failed to move DICOM files to series directory"
+# Move the entire populated temporary directory to the watch directory
+log "Moving '${temp_series_dir}' to '${watch_dir}/'"
+if ! mv "${temp_series_dir}" "${watch_dir}/"; then
+    log "Error: Failed to move series directory to watch path"
     exit 1
 fi
 

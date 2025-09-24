@@ -140,12 +140,27 @@ def get_uniq_id_for_sample(src_path):
     return get_dicom_attribute_from_dir(src_path, DicomKeyToTag.series_instance_uid)
 
 
-def wait_copy_finish(filename):
-    old_size = -1
-    while old_size != os.path.getsize(filename):
-        old_size = os.path.getsize(filename)
-        time.sleep(COPY_WAIT_SECONDS)
-    LOG.info(f"File {filename} copy complete detected")
+def wait_copy_finish(directory):
+    LOG.info(f"Waiting for copy to finish in {directory}...")
+    file_count = -1
+    stable_count = 0
+    STABILITY_THRESHOLD = 2  # Require the count to be stable for 2 checks
+
+    while stable_count < STABILITY_THRESHOLD:
+        current_files = glob.glob(os.path.join(directory, "**", "*.dcm"), recursive=True)
+        current_count = len(current_files)
+
+        if current_count == file_count and current_count > 0:
+            stable_count += 1
+        else:
+            stable_count = 0
+
+        file_count = current_count
+        LOG.info(f"Found {file_count} files, stability count: {stable_count}")
+        if stable_count < STABILITY_THRESHOLD:
+            time.sleep(COPY_WAIT_SECONDS)
+
+    LOG.info(f"Copy complete detected for directory {directory} with {file_count} files.")
 
 
 def on_deleted(event):
@@ -170,6 +185,7 @@ def task_watch_dir():
     ignore_directories=ignore_directories, 
     case_sensitive=case_sensitive
     )
+    my_event_handler.on_modified = on_modified
     my_event_handler.on_deleted = on_deleted
     my_event_handler.on_moved = on_moved
     my_event_handler.on_created = on_created
