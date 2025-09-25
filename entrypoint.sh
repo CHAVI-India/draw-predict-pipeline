@@ -706,7 +706,23 @@ else
             log "Found failing command: $failed_command"
             
             # Clean up the command string for execution
-            executable_command=$(echo "$failed_command" | sed -e "s/Command '\(//" -e "s/'\)' returned non-zero exit status 1//" -e "s/', '/ /g" -e "s/\['//" -e "s/'\]//" -e "s/'//g")
+            # Use Python to reliably parse the command string, avoiding sed quoting issues.
+            executable_command=$(python3 -c "
+import sys
+import shlex
+
+log_line = sys.stdin.read()
+# Extract the list-like string: ['nnUNet...', '...', ...]
+try:
+    command_list_str = log_line[log_line.find('['):log_line.rfind(']') + 1]
+    # Safely evaluate the string representation of the list
+    command_list = eval(command_list_str)
+    # Join the list elements into a shell-safe string
+    print(' '.join(shlex.quote(arg) for arg in command_list))
+except Exception as e:
+    print(f'Error parsing command: {e}', file=sys.stderr)
+    exit(1)
+" <<< "$failed_command")
             
             log "Executing the command directly to see the error..."
             
