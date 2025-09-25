@@ -268,6 +268,10 @@ log "Creating nnUNet results symlink..."
 # Ensure target directory exists
 mkdir -p /home/draw/pipeline/data
 
+# Debug: Check the contents of the data directory 
+log "Listing contents of data directory (/home/draw/pipeline/data):"
+ls -la /home/draw/pipeline/data
+
 # Remove any existing symlink or directory
 if [ -e "/home/draw/pipeline/data/nnUNet_results" ]; then
     rm -rf "/home/draw/pipeline/data/nnUNet_results"
@@ -275,6 +279,12 @@ fi
 
 # Create the symlink
 ln -sf /mnt/efs/nnUNet_results /home/draw/pipeline/data/nnUNet_results
+
+# Create th nnUNet_raw and nnUNet_preprocessed directories
+mkdir -p /home/draw/pipeline/data/nnUNet_raw
+mkdir -p /home/draw/pipeline/data/nnUNet_preprocessed
+
+
 
 # Verify and log EFS mount directory contents
 if [ -d "/mnt/efs/nnUNet_results" ]; then
@@ -303,6 +313,8 @@ else
     log "Error: Symlink /home/draw/pipeline/data/nnUNet_results does not exist or is not a symlink"
     exit 1
 fi
+
+
 
 #
 # Create necessary directories
@@ -667,10 +679,10 @@ else
     # Use polling approach with proper 20-minute timeout
     auto_segment_file_found=false
     start_time=$(date +%s)
-    timeout_duration=1200  # 20 minutes
+    timeout_duration=600  # 10 minutes
     check_interval=5       # Check every 5 seconds
     
-    log "Starting polling for auto-segmentation file with 20-minute timeout..."
+    log "Starting polling for auto-segmentation file with 10-minute timeout..."
     
     while [ $(($(date +%s) - start_time)) -lt $timeout_duration ]; do
         # Check if the file exists
