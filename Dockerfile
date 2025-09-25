@@ -1,5 +1,5 @@
-# Use official NVIDIA CUDA runtime with Ubuntu 22.04 and cuDNN
-FROM nvcr.io/nvidia/cuda:11.5-cudnn-devel-ubuntu22.04
+# Use official NVIDIA CUDA runtime with Ubuntu 20.04 and cuDNN
+FROM nvcr.io/nvidia/cuda:11.6.1-cudnn8-devel-ubuntu20.04
 
 # Arguments for user/group IDs
 ARG UID=1000
