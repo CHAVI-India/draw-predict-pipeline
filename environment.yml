@@ -3,6 +3,7 @@ dependencies: # The list of packages to include in your environment
     - python=3.9 # You can specify versions
     - pip # Install pip in your environment
     - pip: # Include pip dependencies last
+        - awscli
         - alembic==1.13.1
         - click==8.1.7
         - dcmrtstruct2nii==5

@@ -696,9 +696,31 @@ else
         log "Error: Auto-segmentation file not found after 20 minutes of waiting"
         log "Contents of the log file:"
         cat /home/draw/pipeline/logs/logfile.log
+
+        log "Attempting to find and re-run the failed nnUNetv2_predict command..."
         
-        log "Contents of the dicomlog table for debugging:"
-        python3 -c "
+        # Extract the command from the log file
+        failed_command=$(grep -o "Command '\['nnUNetv2_predict'.*'\]' returned non-zero exit status 1" /home/draw/pipeline/logs/logfile.log | head -n 1)
+
+        if [ -n "$failed_command" ]; then
+            log "Found failing command: $failed_command"
+            
+            # Clean up the command string for execution
+            executable_command=$(echo "$failed_command" | sed -e "s/Command '\(//" -e "s/'\)' returned non-zero exit status 1//" -e "s/', '/ /g" -e "s/\['//" -e "s/'\]//" -e "s/'//g")
+            
+            log "Executing the command directly to see the error..."
+            
+            # Activate conda env and run
+            source ~/miniconda3/etc/profile.d/conda.sh && conda activate draw
+            
+            # Run the command
+            eval "$executable_command"
+            
+            log "Command execution finished. The error above is the direct output from the failed command."
+        else
+            log "Could not find the failing nnUNetv2_predict command in the log file."
+            log "Contents of the dicomlog table for debugging:"
+            python3 -c "
 import sqlite3
 import os
 
@@ -735,6 +757,7 @@ try:
 except Exception as e:
     print(f'Error querying database: {e}')
 "
+        fi
         exit 1
     fi
 fi
