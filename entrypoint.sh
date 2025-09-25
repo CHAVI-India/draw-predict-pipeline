@@ -314,13 +314,24 @@ else
     exit 1
 fi
 
-
+# Verify the contents of the data directory
+log "Listing contents of data directory (/home/draw/pipeline/data):"
+ls -la /home/draw/pipeline/data
 
 #
 # Create necessary directories
 log "Creating necessary directories..."
 mkdir -p /home/draw/pipeline/logs
 mkdir -p /home/draw/copy_dicom/files
+
+# Set nnU-Net environment variables
+log "Exporting nnU-Net environment variables..."
+export nnUNet_raw="/home/draw/pipeline/data/nnUNet_raw"
+export nnUNet_preprocessed="/home/draw/pipeline/data/nnUNet_preprocessed"
+export nnUNet_results="/home/draw/pipeline/data/nnUNet_results"
+log "nnUNet_raw: ${nnUNet_raw}"
+log "nnUNet_preprocessed: ${nnUNet_preprocessed}"
+log "nnUNet_results: ${nnUNet_results}"
 
 # Start the pipeline directly in background
 log "Starting the pipeline directly in background..."
