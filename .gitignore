@@ -178,3 +178,4 @@ cython_debug/
 # nifti file and dcm files
 *.dcm
 *.nii.gz
+errorlog.txt

@@ -129,8 +129,31 @@ def predict_one_dataset(
         )
         remove_stuff(op_folder)
         os.makedirs(op_folder, exist_ok=True)
-        pkl_file_src = postprocess
+        
+        # Fix: Resolve postprocess path relative to nnUNet_results environment variable
+        nnunet_results_dir = os.getenv("nnUNet_results")
+        if nnunet_results_dir and not os.path.isabs(postprocess):
+            # If postprocess is a relative path and nnUNet_results is set, resolve it
+            pkl_file_src = os.path.join(nnunet_results_dir, postprocess)
+        else:
+            pkl_file_src = postprocess
+            
         pkl_file_dest = f"{op_folder}/postprocessing.pkl"
+        
+        # Add debugging information
+        LOG.info(f"Postprocess source path: {pkl_file_src}")
+        LOG.info(f"Postprocess file exists: {os.path.exists(pkl_file_src)}")
+        if not os.path.exists(pkl_file_src):
+            LOG.error(f"Postprocess file not found at: {pkl_file_src}")
+            LOG.info(f"nnUNet_results environment variable: {nnunet_results_dir}")
+            LOG.info(f"Original postprocess path: {postprocess}")
+            # List contents of the expected directory to help debug
+            expected_dir = os.path.dirname(pkl_file_src)
+            if os.path.exists(expected_dir):
+                LOG.info(f"Contents of {expected_dir}: {os.listdir(expected_dir)}")
+            else:
+                LOG.error(f"Expected directory does not exist: {expected_dir}")
+        
         # copy
         shutil.copy(pkl_file_src, pkl_file_dest)
         postprocess_folder(ip_folder, op_folder, pkl_file_dest)
