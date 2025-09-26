@@ -645,8 +645,12 @@ if [ "$db_check_found" = false ]; then
             # Check if our specific series exists with any status
             log "Checking for our specific series..."
             our_series_result=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
-                "SELECT COUNT(*) FROM dicomlog WHERE series_namelocal_output_file="/home/draw/pipeline/output/AUTOSEGMENT.RT.dcm"
-us || ', Model: ' || model || ', Input: ' || input_path || ', Output: ' || COALESCE(output_path, 'NULL') || ', Created: ' || created_on FROM dicomlog WHERE series_name = '${seriesInstanceUID}';" 2>&1)
+                "SELECT COUNT(*) FROM dicomlog WHERE series_name = '${seriesInstanceUID}';" 2>&1)
+            
+            if [ $? -eq 0 ] && [ "$our_series_result" -gt 0 ]; then
+                log "Our series '${seriesInstanceUID}' exists in database with details:"
+                series_details=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
+                    "SELECT 'ID: ' || id || ', Status: ' || status || ', Model: ' || model || ', Input: ' || input_path || ', Output: ' || COALESCE(output_path, 'NULL') || ', Created: ' || created_on FROM dicomlog WHERE series_name = '${seriesInstanceUID}';" 2>&1)
                 if [ $? -eq 0 ]; then
                     echo "$series_details"
                 else
