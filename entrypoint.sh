@@ -645,12 +645,8 @@ if [ "$db_check_found" = false ]; then
             # Check if our specific series exists with any status
             log "Checking for our specific series..."
             our_series_result=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
-                "SELECT COUNT(*) FROM dicomlog WHERE series_name = '${seriesInstanceUID}';" 2>&1)
-            
-            if [ $? -eq 0 ] && [ "$our_series_result" -gt 0 ]; then
-                log "Our series '${seriesInstanceUID}' exists in database with details:"
-                series_details=$(sqlite3 /home/draw/pipeline/data/draw.db.sqlite \
-                    "SELECT 'ID: ' || id || ', Status: ' || status || ', Model: ' || model || ', Input: ' || input_path || ', Output: ' || COALESCE(output_path, 'NULL') || ', Created: ' || created_on FROM dicomlog WHERE series_name = '${seriesInstanceUID}';" 2>&1)
+                "SELECT COUNT(*) FROM dicomlog WHERE series_namelocal_output_file="/home/draw/pipeline/output/AUTOSEGMENT.RT.dcm"
+us || ', Model: ' || model || ', Input: ' || input_path || ', Output: ' || COALESCE(output_path, 'NULL') || ', Created: ' || created_on FROM dicomlog WHERE series_name = '${seriesInstanceUID}';" 2>&1)
                 if [ $? -eq 0 ]; then
                     echo "$series_details"
                 else
@@ -684,9 +680,10 @@ log "Database check completed successfully - series ready for processing"
 # Wait for the automatic segmentation to complete by checking for AUTOSEGMENT.RT.dcm
 log "Waiting for auto-segmentation to complete..."
 
-# Check if file already exists
-if [ -f "/home/draw/pipeline/output/AUTOSEGMENT.RT.dcm" ]; then
-    log "Auto-segmentation file already exists"
+# Check if file already exists (search recursively in output directory)
+autosegment_file=$(find /home/draw/pipeline/output -name "AUTOSEGMENT.RT.dcm" -type f 2>/dev/null | head -n 1)
+if [ -n "$autosegment_file" ]; then
+    log "Auto-segmentation file already exists at: $autosegment_file"
 else
     # Use polling approach with proper 20-minute timeout
     auto_segment_file_found=false
@@ -695,12 +692,14 @@ else
     check_interval=5       # Check every 5 seconds
     
     log "Starting polling for auto-segmentation file with 10-minute timeout..."
+    log "Searching recursively in /home/draw/pipeline/output for AUTOSEGMENT.RT.dcm"
     
     while [ $(($(date +%s) - start_time)) -lt $timeout_duration ]; do
-        # Check if the file exists
-        if [ -f "/home/draw/pipeline/output/AUTOSEGMENT.RT.dcm" ]; then
+        # Check if the file exists anywhere in the output directory
+        autosegment_file=$(find /home/draw/pipeline/output -name "AUTOSEGMENT.RT.dcm" -type f 2>/dev/null | head -n 1)
+        if [ -n "$autosegment_file" ]; then
             elapsed_time=$(($(date +%s) - start_time))
-            log "Auto-segmentation file found after ${elapsed_time} seconds"
+            log "Auto-segmentation file found after ${elapsed_time} seconds at: $autosegment_file"
             auto_segment_file_found=true
             break
         fi
@@ -806,13 +805,19 @@ fi
 log "Waiting for 15 seconds for final writes to complete..."
 sleep 15
 
+# Find the actual autosegmentation file path (in case it wasn't found during the polling above)
+if [ -z "$autosegment_file" ]; then
+    autosegment_file=$(find /home/draw/pipeline/output -name "AUTOSEGMENT.RT.dcm" -type f 2>/dev/null | head -n 1)
+fi
+
 # Define output file paths
-local_output_file="/home/draw/pipeline/output/AUTOSEGMENT.RT.dcm"
+local_output_file="$autosegment_file"
 s3_output_path="${outputS3Path}/AUTOSEGMENT.RT.${fileUploadId}.dcm"
 
 # Verify output file exists and is not empty
 if [[ ! -s "${local_output_file}" ]]; then
     log "Error: Output file is empty or not found at ${local_output_file}"
+    log "Searched for AUTOSEGMENT.RT.dcm in /home/draw/pipeline/output directory"
     exit 1
 fi
 
