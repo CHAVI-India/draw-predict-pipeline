@@ -95,6 +95,14 @@ def predict_one_dataset(
     trainer_name = dataset_specific_map["trainer_name"]
     postprocess = dataset_specific_map["postprocess"]
 
+    LOG.info(f"Raw postprocess from config: {postprocess}")
+    LOG.info(f"Current working directory: {os.getcwd()}")
+    LOG.info(f'Model config: {model_config}')
+    LOG.info(f'Postprocess: {postprocess}')
+    LOG.info(f'Postprocess exists: {os.path.exists(postprocess)}')
+
+    
+
     remove_stuff(dataset_dir)
 
     dcm_input_paths = [dcm.input_path for dcm in dcm_logs]
@@ -133,20 +141,24 @@ def predict_one_dataset(
         os.makedirs(op_folder, exist_ok=True)
         LOG.info(f"Postprocess file: {postprocess}")
         
-        pkl_file_src = postprocess
-            
-        pkl_file_dest = f"{op_folder}/postprocessing.pkl"
-        
-        # Add debugging information
-        LOG.info(f"Working directory: {os.getcwd()}")
+        # Resolve postprocess path using base_directory environment variable
+        base_dir = os.getenv("base_directory")
+        if base_dir and not os.path.isabs(postprocess):
+            pkl_file_src = os.path.join(base_dir, postprocess)
+        else:
+            pkl_file_src = postprocess
         LOG.info(f"Postprocess source path: {pkl_file_src}")
-        LOG.info(f"Postprocess file exists: {os.path.exists(pkl_file_src)}")
+        LOG.info(f"Base directory from env: {base_dir}")    
+        pkl_file_dest = f"{op_folder}/postprocessing.pkl"
+        LOG.info(f"Postprocess destination path: {pkl_file_dest}")
+        
         if not os.path.exists(pkl_file_src):
             LOG.error(f"Postprocess file not found at: {pkl_file_src}")
             LOG.info(f"nnUNet_results environment variable: {os.getenv('nnUNet_results')}")
             # List contents of the expected directory to help debug
             expected_dir = os.path.dirname(pkl_file_src)
             if os.path.exists(expected_dir):
+                
                 LOG.info(f"Contents of {expected_dir}: {os.listdir(expected_dir)}")
             else:
                 LOG.error(f"Expected directory does not exist: {expected_dir}")
@@ -155,10 +167,13 @@ def predict_one_dataset(
                     LOG.info("nnUNet_results directory exists in current working directory")
                 else:
                     LOG.error("nnUNet_results directory does NOT exist in current working directory")
+            raise FileNotFoundError(f"Postprocess file not found: {pkl_file_src}")
         
         # copy
         shutil.copy(pkl_file_src, pkl_file_dest)
+        LOG.info(f"Postprocess file copied to: {pkl_file_dest}")
         postprocess_folder(ip_folder, op_folder, pkl_file_dest)
+        LOG.info(f"Postprocess completed.")
         model_pred_dir = op_folder
     return model_pred_dir
 
@@ -166,8 +181,12 @@ def predict_one_dataset(
 def get_final_output_dir(parent_dataset_name, preds_dir):
     final_output_dir = os.path.join(preds_dir, parent_dataset_name, "results")
     print("in draw/predict/predict.py")
+    LOG.info("in draw/predict/predict.py")
     print("preds_dir:",preds_dir)
+    LOG.info("preds_dir:",preds_dir)
     print("parent_dataset_name:",parent_dataset_name)
+    LOG.info("parent_dataset_name:",parent_dataset_name)
     print("final_output_dir:",final_output_dir)
+    LOG.info("final_output_dir:",final_output_dir)
     #return final_output_dir
     return preds_dir

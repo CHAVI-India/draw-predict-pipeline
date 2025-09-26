@@ -326,6 +326,7 @@ mkdir -p /home/draw/copy_dicom/files
 
 # Set nnU-Net environment variables
 log "Exporting nnU-Net environment variables..."
+export base_directory="/home/draw/pipeline/data" # Added to allow proper postprocessing path resolution.
 export nnUNet_raw="/home/draw/pipeline/data/nnUNet_raw"
 export nnUNet_preprocessed="/home/draw/pipeline/data/nnUNet_preprocessed"
 export nnUNet_results="/home/draw/pipeline/data/nnUNet_results"
