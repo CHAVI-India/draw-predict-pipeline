@@ -688,10 +688,10 @@ else
     # Use polling approach with proper 20-minute timeout
     auto_segment_file_found=false
     start_time=$(date +%s)
-    timeout_duration=600  # 10 minutes
+    timeout_duration=1200  # 20 minutes
     check_interval=5       # Check every 5 seconds
     
-    log "Starting polling for auto-segmentation file with 10-minute timeout..."
+    log "Starting polling for auto-segmentation file with 20-minute timeout..."
     log "Searching recursively in /home/draw/pipeline/output for AUTOSEGMENT.RT.dcm"
     
     while [ $(($(date +%s) - start_time)) -lt $timeout_duration ]; do
