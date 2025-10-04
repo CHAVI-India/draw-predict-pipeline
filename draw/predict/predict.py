@@ -99,7 +99,13 @@ def predict_one_dataset(
     LOG.info(f"Current working directory: {os.getcwd()}")
     LOG.info(f'Model config: {model_config}')
     LOG.info(f'Postprocess: {postprocess}')
-    LOG.info(f'Postprocess exists: {os.path.exists(postprocess)}')
+    
+    # Handle both None and string "null" from YAML
+    if postprocess is None or postprocess == "null" or postprocess == "":
+        postprocess = None
+        LOG.info("Postprocess is None or 'null' - skipping postprocessing")
+    else:
+        LOG.info(f'Postprocess exists: {os.path.exists(postprocess)}')
 
     
 
