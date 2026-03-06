@@ -1,5 +1,8 @@
 import os
 import subprocess
+import logging
+
+LOG = logging.getLogger(__name__)
 
 
 class NNUNetV2Adapter:
@@ -155,14 +158,31 @@ class NNUNetV2Adapter:
     def _run_subprocess(run_args, env=None):
         """Synchronous call to nnunet"""
         run_args = [str(i) for i in run_args]
-        subprocess.run(
+        LOG.info(f"Running command: {' '.join(run_args)}")
+        
+        result = subprocess.run(
             run_args,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             stdin=subprocess.PIPE,
-            check=True,
+            text=True,
             env=env,
         )
+        
+        if result.stdout:
+            LOG.info(f"nnUNet output:\n{result.stdout}")
+        
+        if result.returncode != 0:
+            LOG.error(f"nnUNet command failed with exit code {result.returncode}")
+            LOG.error(f"Command: {' '.join(run_args)}")
+            if result.stdout:
+                LOG.error(f"Output:\n{result.stdout}")
+            raise subprocess.CalledProcessError(
+                result.returncode, 
+                run_args, 
+                output=result.stdout,
+                stderr=None
+            )
 
 
 default_nnunet_adapter = NNUNetV2Adapter(
