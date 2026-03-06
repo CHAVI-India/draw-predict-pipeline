@@ -805,14 +805,44 @@ except Exception as e:
     fi
 fi
 
-# Wait briefly before final copy to ensure all writes are complete
-log "Waiting for 15 seconds for final writes to complete..."
-sleep 15
-
 # Find the actual autosegmentation file path (in case it wasn't found during the polling above)
 if [ -z "$autosegment_file" ]; then
     autosegment_file=$(find /home/draw/pipeline/output -name "AUTOSEGMENT.RT.dcm" -type f 2>/dev/null | head -n 1)
 fi
+
+# Wait for file size to stabilize over 30 seconds before proceeding
+log "Checking file size stability for: $autosegment_file"
+stable_duration=30        # File size must remain stable for 30 seconds
+stability_check_interval=5 # Check every 5 seconds
+stability_timeout=300      # Give up after 5 minutes
+stable_since=$(date +%s)
+last_size=$(stat -c%s "$autosegment_file" 2>/dev/null || echo 0)
+stability_start=$(date +%s)
+
+log "Initial file size: ${last_size} bytes"
+
+while true; do
+    sleep $stability_check_interval
+    current_size=$(stat -c%s "$autosegment_file" 2>/dev/null || echo 0)
+
+    if [ "$current_size" -ne "$last_size" ]; then
+        log "File size changed: ${last_size} -> ${current_size} bytes, resetting stability timer"
+        last_size=$current_size
+        stable_since=$(date +%s)
+    fi
+
+    stable_elapsed=$(($(date +%s) - stable_since))
+    if [ "$stable_elapsed" -ge "$stable_duration" ]; then
+        log "File size stable at ${current_size} bytes for ${stable_elapsed} seconds, proceeding"
+        break
+    fi
+
+    total_elapsed=$(($(date +%s) - stability_start))
+    if [ "$total_elapsed" -ge "$stability_timeout" ]; then
+        log "Warning: File size stability timeout after ${total_elapsed} seconds (current size: ${current_size} bytes), proceeding anyway"
+        break
+    fi
+done
 
 # Define output file paths
 local_output_file="$autosegment_file"
