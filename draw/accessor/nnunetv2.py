@@ -28,7 +28,7 @@ class NNUNetV2Adapter:
         os.environ[self.NNUNET_RESULTS] = self.preds_dir
         os.environ["nnUNet_def_n_proc"] = "6"
         os.environ["nnUNet_n_proc_DA"] = "6"
-        os.environ["nnUNet_compile"] = "1"
+        os.environ["nnUNet_compile"] = "0"
         os.makedirs(self.raw_dir, exist_ok=True)
         os.makedirs(self.preprocessed_dir, exist_ok=True)
         os.makedirs(self.preds_dir, exist_ok=True)
