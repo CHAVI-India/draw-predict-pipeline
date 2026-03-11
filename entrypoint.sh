@@ -692,8 +692,8 @@ else
     # Use polling approach with proper 20-minute timeout
     auto_segment_file_found=false
     start_time=$(date +%s)
-    timeout_duration=1200  # 20 minutes
-    check_interval=1       # Check every 5 seconds
+    timeout_duration=2400  # 40 minutes
+    check_interval=1       # Check every 1 seconds
     
     log "Starting polling for auto-segmentation file with 20-minute timeout..."
     log "Searching recursively in /home/draw/pipeline/output for AUTOSEGMENT.RT.dcm"
@@ -813,7 +813,7 @@ fi
 # Wait for file size to stabilize over 30 seconds before proceeding
 log "Checking file size stability for: $autosegment_file"
 stable_duration=30        # File size must remain stable for 30 seconds
-stability_check_interval=1 # Check every 5 seconds
+stability_check_interval=1 # Check every 1 seconds
 stability_timeout=600      # Give up after 10 minutes
 stable_since=$(date +%s)
 last_size=$(stat -c%s "$autosegment_file" 2>/dev/null || echo 0)
