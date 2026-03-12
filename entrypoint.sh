@@ -7,12 +7,64 @@ log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*" 
 }
 
+# Background memory monitor (RAM + GPU VRAM)
+# Writes periodic snapshots to a dedicated log and to stdout.
+MEMORY_LOG="/home/draw/pipeline/logs/memory_usage.log"
+MEMORY_MONITOR_INTERVAL="${MEMORY_MONITOR_INTERVAL:-30}"  # seconds, configurable via env var
+
+monitor_memory() {
+    mkdir -p "$(dirname "$MEMORY_LOG")"
+    while true; do
+        ts=$(date '+%Y-%m-%d %H:%M:%S')
+
+        # --- RAM ---
+        ram_info=$(free -m | awk 'NR==2{printf "Total: %sMB  Used: %sMB  Free: %sMB  Available: %sMB  Usage: %.1f%%", $2, $3, $4, $7, $3/$2*100}')
+
+        # --- GPU VRAM ---
+        if command -v nvidia-smi &> /dev/null; then
+            gpu_info=$(nvidia-smi --query-gpu=index,name,memory.used,memory.total,memory.free,utilization.gpu \
+                       --format=csv,noheader,nounits 2>/dev/null | \
+                       awk -F', ' '{printf "GPU%s (%s): Used: %sMB / %sMB  Free: %sMB  Util: %s%%", $1, $2, $3, $4, $5, $6}')
+        else
+            gpu_info="nvidia-smi not available"
+        fi
+
+        # Emit to dedicated log file
+        echo "${ts} [MEM] RAM  - ${ram_info}" >> "$MEMORY_LOG"
+        echo "${ts} [MEM] VRAM - ${gpu_info}" >> "$MEMORY_LOG"
+
+        # Also emit to stdout so it appears in CloudWatch / AWS Batch logs
+        echo "${ts} [MEM] RAM  - ${ram_info}"
+        echo "${ts} [MEM] VRAM - ${gpu_info}"
+
+        sleep "$MEMORY_MONITOR_INTERVAL"
+    done
+}
+
 # Function to clean up on exit
 cleanup() {
     local exit_code=$?
     log "Starting cleanup..."
-    
-    # Kill any background processes
+
+    # Stop memory monitor
+    if [ -n "${MEMORY_MONITOR_PID:-}" ] && kill -0 "$MEMORY_MONITOR_PID" 2>/dev/null; then
+        log "Stopping memory monitor (PID: $MEMORY_MONITOR_PID)..."
+        kill "$MEMORY_MONITOR_PID" 2>/dev/null || true
+        wait "$MEMORY_MONITOR_PID" 2>/dev/null || true
+    fi
+
+    # Print memory usage summary before exiting
+    if [ -f "$MEMORY_LOG" ]; then
+        log "=== Memory Usage Summary ==="
+        log "Peak RAM usage during run:"
+        awk -F'Used: ' '/\[MEM\] RAM/{split($2,a,"MB"); if(a[1]+0 > max) max=a[1]+0} END{printf "  Peak RAM Used: %dMB\n", max}' "$MEMORY_LOG"
+        log "Peak GPU VRAM usage during run:"
+        awk -F'Used: ' '/\[MEM\] VRAM.*Used:/{split($2,a,"MB"); if(a[1]+0 > max) max=a[1]+0} END{printf "  Peak VRAM Used: %dMB\n", max}' "$MEMORY_LOG"
+        log "Full memory log at: $MEMORY_LOG"
+        log "=== End Memory Summary ==="
+    fi
+
+    # Kill any remaining background processes
     pkill -P $$ || true
     
     log "Cleanup complete. Exiting with code $exit_code"
@@ -341,6 +393,12 @@ conda activate draw
 nohup python main.py start-pipeline > /home/draw/pipeline/logs/pipeline_output.log 2>&1 &
 pipeline_pid=$!
 log "Pipeline started with PID: $pipeline_pid"
+
+# Start background memory monitor (RAM + GPU VRAM)
+log "Starting background memory monitor (interval: ${MEMORY_MONITOR_INTERVAL}s)..."
+monitor_memory &
+MEMORY_MONITOR_PID=$!
+log "Memory monitor started with PID: $MEMORY_MONITOR_PID"
 
 # Wait for pipeline to start
 log "Waiting for pipeline to initialize..."
