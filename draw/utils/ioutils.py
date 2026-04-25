@@ -108,8 +108,17 @@ def copy_input_dcm_to_output(input_dir, output_dir):
 
 def get_gpu_memory():
     command = "nvidia-smi --query-gpu=memory.free --format=csv"
-    memory_free_info = (
-        sp.check_output(command.split()).decode("ascii").split("\n")[:-1][1:]
-    )
-    memory_free_values = [int(x.split()[0]) for i, x in enumerate(memory_free_info)]
-    return int(memory_free_values[0])
+    try:
+        memory_free_info = (
+            sp.check_output(command.split(), stderr=sp.STDOUT).decode("ascii").split("\n")[:-1][1:]
+        )
+        memory_free_values = [int(x.split()[0]) for i, x in enumerate(memory_free_info)]
+        free_mb = int(memory_free_values[0])
+        LOG.info(f"[get_gpu_memory] GPU memory free: {free_mb} MB")
+        return free_mb
+    except sp.CalledProcessError as e:
+        LOG.error(f"[get_gpu_memory] nvidia-smi failed (exit {e.returncode}): {e.output.decode('ascii', errors='replace').strip()}")
+        raise
+    except (IndexError, ValueError) as e:
+        LOG.error(f"[get_gpu_memory] Failed to parse nvidia-smi output: {e}")
+        raise

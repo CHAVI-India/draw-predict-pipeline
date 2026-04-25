@@ -1,5 +1,6 @@
 import glob
 import os
+import time
 
 import nibabel as nib
 import numpy as np
@@ -142,23 +143,34 @@ def convert_nifti_outputs_to_dicom(
     seg_map,
 ):
     dataset_tag = DEFAULT_DATASET_TAG
+    nifti_files = glob.glob(f"{model_pred_dir}/**.nii.gz")
+    LOG.info(f"[convert_nifti_outputs_to_dicom] Found {len(nifti_files)} NIfTI file(s) in {model_pred_dir}")
 
-    for nifti_file_path in glob.glob(f"{model_pred_dir}/**.nii.gz"):
+    if not nifti_files:
+        LOG.error(f"[convert_nifti_outputs_to_dicom] No NIfTI files found in {model_pred_dir} - cannot generate RT struct")
+        raise FileNotFoundError(f"No NIfTI prediction files found in {model_pred_dir}")
+
+    series_name = None
+    save_dir = None
+    for nifti_file_path in nifti_files:
+        LOG.info(f"[convert_nifti_outputs_to_dicom] Processing {nifti_file_path}")
         sample_no = get_sample_number_from_nifti_path(nifti_file_path, dataset_tag)
         dcm_root_dir, series_name = get_dcm_root(
             dataset_id,
             sample_no,
             dataset_dir,
         )
+        LOG.info(f"[convert_nifti_outputs_to_dicom] sample_no={sample_no}, series_name={series_name}, dcm_root_dir={dcm_root_dir}")
+        _rt_start = time.time()
         save_dir = convert_multilabel_nifti_to_rtstruct(
             nifti_file_path=nifti_file_path,
             dicom_dir=dcm_root_dir,
             save_dir=f"{final_output_dir}/{exp_number}/{series_name}",
             label_to_name_map=seg_map,
         )
+        LOG.info(f"[convert_nifti_outputs_to_dicom] RT struct generated in {time.time() - _rt_start:.1f}s -> {save_dir}")
 
-    LOG.info(f"Updating {series_name} to {save_dir}, {Status.PREDICTED}")
-
+    LOG.info(f"[convert_nifti_outputs_to_dicom] Updating DB: series_name={series_name}, save_dir={save_dir}, status={Status.PREDICTED}")
     DBConnection.update_record_by_series_name(
         series_name=series_name,
         output_path=save_dir,

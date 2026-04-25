@@ -10,8 +10,10 @@ def start_continuous_prediction():
     process_functions = [task_model_prediction, task_watch_dir]
     for fxn in process_functions:
         p = Process(target=fxn)
-        LOG.info(f"Starting {fxn.__name__}")
+        LOG.info(f"Starting process: {fxn.__name__} (PID will be assigned on start)")
         p.start()
-        all_processes.append(p)
-    for p in all_processes:
+        LOG.info(f"Process {fxn.__name__} started with PID: {p.pid}")
+        all_processes.append((fxn.__name__, p))
+    for name, p in all_processes:
         p.join()
+        LOG.info(f"Process {name} (PID={p.pid}) exited with code {p.exitcode}")

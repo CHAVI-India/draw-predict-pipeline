@@ -7,6 +7,20 @@ log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*" 
 }
 
+# Print a log file line-by-line, prefixing each line with the current wall-clock
+# time and a [LOGFILE] tag so that the original embedded timestamp is preserved
+# alongside the time the line was printed. This makes elapsed time calculable.
+log_file_contents() {
+    local filepath="$1"
+    if [ ! -f "$filepath" ]; then
+        log "WARNING: log_file_contents: file not found: $filepath"
+        return
+    fi
+    while IFS= read -r line; do
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [LOGFILE] $line"
+    done < "$filepath"
+}
+
 # Background memory monitor (RAM + GPU VRAM)
 # Writes periodic snapshots to a dedicated log and to stdout.
 MEMORY_LOG="/home/draw/pipeline/logs/memory_usage.log"
@@ -461,7 +475,7 @@ log_found=false
 for i in {1..5}; do
     if [ -f /home/draw/pipeline/logs/logfile.log ]; then
         log "Log file found"
-        cat /home/draw/pipeline/logs/logfile.log
+        log_file_contents /home/draw/pipeline/logs/logfile.log
         log_found=true
         
         break
@@ -493,7 +507,7 @@ fi
 log "Pipeline output log:"
 if [ -f /home/draw/pipeline/logs/pipeline_output.log ]; then
     log "=== PIPELINE OUTPUT LOG ==="
-    cat /home/draw/pipeline/logs/pipeline_output.log
+    log_file_contents /home/draw/pipeline/logs/pipeline_output.log
     log "=== END PIPELINE OUTPUT LOG ==="
 else
     log "Pipeline output log not found"
@@ -632,7 +646,7 @@ done
 
 if [ "$db_check_found" = false ]; then
     log "Error: Series instance UID '${seriesInstanceUID}' with INIT status not found in database after 5 minutes"
-    cat /home/draw/pipeline/logs/pipeline_output.log
+    log_file_contents /home/draw/pipeline/logs/pipeline_output.log
     log "=== DATABASE DEBUGGING INFORMATION ==="
     
     # Check if database file exists
@@ -780,7 +794,7 @@ else
     if [ "$auto_segment_file_found" = false ]; then
         log "Error: Auto-segmentation file not found after 20 minutes of waiting"
         log "Contents of the log file:"
-        cat /home/draw/pipeline/logs/logfile.log
+        log_file_contents /home/draw/pipeline/logs/logfile.log
 
         log "Attempting to find and re-run the failed nnUNetv2_predict command..."
         
@@ -932,7 +946,7 @@ log "Auto-segmentation completed successfully"
 log "Result available at: ${s3_output_path}"
 log "Final pipeline log:"
 if [ -f /home/draw/pipeline/logs/pipeline.log ]; then
-    cat /home/draw/pipeline/logs/pipeline.log
+    log_file_contents /home/draw/pipeline/logs/pipeline.log
 fi
 
 # Exit with success

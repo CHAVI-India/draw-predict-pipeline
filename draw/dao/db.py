@@ -102,6 +102,7 @@ class DBConnection:
             dcm_log (DicomLog): Log Record
             status (Status): Status to Update
         """
+        LOG.info(f"[update_status_by_id] id={dcm_log.id}, series='{dcm_log.series_name}', {dcm_log.status} -> {updated_status}")
         with Session(DB_ENGINE) as sess:
             stmt = (
                 update(DicomLog)
@@ -122,6 +123,7 @@ class DBConnection:
             output_path (str): output path of the record
             status (Status): updated status
         """
+        LOG.info(f"[update_record_by_series_name] series='{series_name}', output_path='{output_path}', -> {status}")
         with Session(DB_ENGINE) as sess:
             stmt = (
                 update(DicomLog)
@@ -131,3 +133,4 @@ class DBConnection:
             )
             sess.execute(stmt)
             sess.commit()
+        LOG.info(f"[update_record_by_series_name] DB update committed for series='{series_name}'")

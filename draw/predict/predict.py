@@ -1,5 +1,9 @@
+import logging
+import logging.handlers
+import multiprocessing
 import os
 import shutil
+import time
 from datetime import datetime
 from functools import partial
 from multiprocessing.pool import Pool
@@ -28,13 +32,34 @@ def getUpdated_ALL_SEG_MAP(data_path):
 
 
 
+def _worker_log_init(queue):
+    """Configure each pool worker to forward log records to the main process via queue."""
+    queue_handler = logging.handlers.QueueHandler(queue)
+    root = logging.getLogger()
+    root.handlers = []
+    root.addHandler(queue_handler)
+    root.setLevel(logging.INFO)
+
+
 def folder_predict(dcm_logs: List[DicomLog], preds_dir, dataset_name, data_path, only_original):
     ALL_SEG_MAP = getUpdated_ALL_SEG_MAP(data_path)
     task_map = ALL_SEG_MAP[dataset_name]
     exp_number = datetime.now().strftime("%Y-%m-%d.%H-%M")
     parent_dataset_name = dataset_name
 
-    with Pool(processes=MULTIPROCESSING_NUM_POOL_WORKERS) as m_pool:
+    log_queue = multiprocessing.Manager().Queue()
+    queue_listener = logging.handlers.QueueListener(
+        log_queue, *logging.getLogger().handlers, respect_handler_level=True
+    )
+    queue_listener.start()
+    LOG.info(f"Starting parallel prediction pool ({MULTIPROCESSING_NUM_POOL_WORKERS} workers) for model {dataset_name}")
+    pool_start = time.time()
+
+    with Pool(
+        processes=MULTIPROCESSING_NUM_POOL_WORKERS,
+        initializer=_worker_log_init,
+        initargs=(log_queue,),
+    ) as m_pool:
         # in order of keys, keys order guaranteed by python
         all_model_prediction_dirs = m_pool.map(
             partial(
@@ -48,7 +73,9 @@ def folder_predict(dcm_logs: List[DicomLog], preds_dir, dataset_name, data_path,
             task_map.keys(),
         )
 
-    LOG.info(f"Prediction completed from model {dataset_name}")
+    queue_listener.stop()
+    pool_elapsed = time.time() - pool_start
+    LOG.info(f"Prediction pool completed for model {dataset_name} in {pool_elapsed:.1f}s")
 
     final_output_dir = get_final_output_dir(parent_dataset_name, preds_dir)
 
@@ -63,6 +90,8 @@ def folder_predict(dcm_logs: List[DicomLog], preds_dir, dataset_name, data_path,
         dataset_name = dataset_specific_map["name"]
         dataset_dir = normpath(f"{raw_base_dir}/Dataset{dataset_id}_{dataset_name}")
         seg_map = dataset_specific_map["map"]
+        LOG.info(f"Converting NIfTI outputs to DICOM for dataset {dataset_id} ({dataset_name}), pred_dir={model_pred_dir}")
+        nifti_start = time.time()
         convert_nifti_outputs_to_dicom(
             model_pred_dir,
             final_output_dir,
@@ -71,6 +100,7 @@ def folder_predict(dcm_logs: List[DicomLog], preds_dir, dataset_name, data_path,
             exp_number,
             seg_map,
         )
+        LOG.info(f"NIfTI->DICOM conversion for dataset {dataset_id} completed in {time.time() - nifti_start:.1f}s")
     LOG.info(f"Prediction Complete for {dataset_name}")
 
 
@@ -88,31 +118,32 @@ def predict_one_dataset(
     dataset_name = dataset_specific_map["name"]
     dataset_dir = normpath(f"{raw_base_dir}/Dataset{dataset_id}_{dataset_name}")
 
-    LOG.info(f"Processing ID {dataset_id}")
+    dataset_start = time.time()
+    LOG.info(f"[dataset_id={dataset_id}] Starting prediction")
 
     model_config = dataset_specific_map["config"]
     seg_map = dataset_specific_map["map"]
     trainer_name = dataset_specific_map["trainer_name"]
     postprocess = dataset_specific_map["postprocess"]
 
-    LOG.info(f"Raw postprocess from config: {postprocess}")
-    LOG.info(f"Current working directory: {os.getcwd()}")
-    LOG.info(f'Model config: {model_config}')
-    LOG.info(f'Postprocess: {postprocess}')
+    LOG.info(f"[dataset_id={dataset_id}] Raw postprocess from config: {postprocess}")
+    LOG.info(f"[dataset_id={dataset_id}] Current working directory: {os.getcwd()}")
+    LOG.info(f"[dataset_id={dataset_id}] Model config: {model_config}")
+    LOG.info(f"[dataset_id={dataset_id}] Postprocess: {postprocess}")
     
     # Handle both None and string "null" from YAML
     if postprocess is None or postprocess == "null" or postprocess == "":
         postprocess = None
-        LOG.info("Postprocess is None or 'null' - skipping postprocessing")
+        LOG.info(f"[dataset_id={dataset_id}] Postprocess is None or 'null' - skipping postprocessing")
     else:
-        LOG.info(f'Postprocess exists: {os.path.exists(postprocess)}')
+        LOG.info(f"[dataset_id={dataset_id}] Postprocess exists: {os.path.exists(postprocess)}")
 
     
 
     remove_stuff(dataset_dir)
 
     dcm_input_paths = [dcm.input_path for dcm in dcm_logs]
-    LOG.info(f"Found {len(dcm_input_paths)} DICOM directories")
+    LOG.info(f"[dataset_id={dataset_id}] Found {len(dcm_input_paths)} DICOM directories")
 
     for idx, dicom_dir in enumerate(dcm_input_paths):
         sample_number = str(idx).zfill(SAMPLE_NUMBER_ZFILL)
@@ -133,19 +164,22 @@ def predict_one_dataset(
         preds_dir, parent_dataset_name, str(dataset_id), "modelpred"
     )
     remove_stuff(model_pred_dir)
+    LOG.info(f"[dataset_id={dataset_id}] Starting nnUNet prediction: input={tr_images}, output={model_pred_dir}")
+    nnunet_start = time.time()
     generate_labels_on_data(
         tr_images, dataset_id, model_pred_dir, model_config, trainer_name
     )
+    LOG.info(f"[dataset_id={dataset_id}] nnUNet prediction completed in {time.time() - nnunet_start:.1f}s")
     if postprocess is not None:
         ip_folder = model_pred_dir
-        LOG.info(f"Input Folder : {ip_folder}")
+        LOG.info(f"[dataset_id={dataset_id}] Input Folder : {ip_folder}")
         op_folder = os.path.join(
             preds_dir, parent_dataset_name, str(dataset_id), "postprocess"
         )
-        LOG.info(f"Output Folder : {op_folder}")
+        LOG.info(f"[dataset_id={dataset_id}] Output Folder : {op_folder}")
         remove_stuff(op_folder)
         os.makedirs(op_folder, exist_ok=True)
-        LOG.info(f"Postprocess file: {postprocess}")
+        LOG.info(f"[dataset_id={dataset_id}] Postprocess file: {postprocess}")
         
         # Resolve postprocess path using base_directory environment variable
         base_dir = os.getenv("base_directory")
@@ -153,10 +187,10 @@ def predict_one_dataset(
             pkl_file_src = os.path.join(base_dir, postprocess)
         else:
             pkl_file_src = postprocess
-        LOG.info(f"Postprocess source path: {pkl_file_src}")
-        LOG.info(f"Base directory from env: {base_dir}")    
+        LOG.info(f"[dataset_id={dataset_id}] Postprocess source path: {pkl_file_src}")
+        LOG.info(f"[dataset_id={dataset_id}] Base directory from env: {base_dir}")
         pkl_file_dest = f"{op_folder}/postprocessing.pkl"
-        LOG.info(f"Postprocess destination path: {pkl_file_dest}")
+        LOG.info(f"[dataset_id={dataset_id}] Postprocess destination path: {pkl_file_dest}")
         
         if not os.path.exists(pkl_file_src):
             LOG.error(f"Postprocess file not found at: {pkl_file_src}")
@@ -177,22 +211,18 @@ def predict_one_dataset(
         
         # copy
         shutil.copy(pkl_file_src, pkl_file_dest)
-        LOG.info(f"Postprocess file copied to: {pkl_file_dest}")
+        LOG.info(f"[dataset_id={dataset_id}] Postprocess file copied to: {pkl_file_dest}")
+        pp_start = time.time()
         postprocess_folder(ip_folder, op_folder, pkl_file_dest)
-        LOG.info(f"Postprocess completed.")
+        LOG.info(f"[dataset_id={dataset_id}] Postprocessing completed in {time.time() - pp_start:.1f}s")
         model_pred_dir = op_folder
+    LOG.info(f"[dataset_id={dataset_id}] predict_one_dataset finished in {time.time() - dataset_start:.1f}s")
     return model_pred_dir
 
 
 def get_final_output_dir(parent_dataset_name, preds_dir):
     final_output_dir = os.path.join(preds_dir, parent_dataset_name, "results")
-    print("in draw/predict/predict.py")
-    LOG.info("in draw/predict/predict.py")
-    print("preds_dir:",preds_dir)
-    LOG.info("preds_dir:",preds_dir)
-    print("parent_dataset_name:",parent_dataset_name)
-    LOG.info("parent_dataset_name:",parent_dataset_name)
-    print("final_output_dir:",final_output_dir)
-    LOG.info("final_output_dir:",final_output_dir)
-    #return final_output_dir
+    LOG.info(f"get_final_output_dir: preds_dir={preds_dir}")
+    LOG.info(f"get_final_output_dir: parent_dataset_name={parent_dataset_name}")
+    LOG.info(f"get_final_output_dir: computed final_output_dir={final_output_dir} (returning preds_dir)")
     return preds_dir

@@ -2,6 +2,7 @@ import json
 import os
 import os.path
 import tempfile
+import time
 from glob import glob
 
 import nibabel as nib
@@ -37,6 +38,8 @@ def convert_dicom_dir_to_nnunet_dataset(
     extension: str = "nii.gz",
     only_original=True,
 ) -> str:
+    LOG.info(f"[convert_dicom_dir_to_nnunet_dataset] Starting: dicom_dir={dicom_dir}, dataset_id={dataset_id}, dataset_name={dataset_name}, sample_number={sample_number}")
+    _start = time.time()
     """
     Converts dicom_dir into nnUnet format dataset
 
@@ -78,6 +81,7 @@ def convert_dicom_dir_to_nnunet_dataset(
         get_immediate_dicom_parent_dir(dicom_dir),
         dataset_dir,
     )
+    LOG.info(f"[convert_dicom_dir_to_nnunet_dataset] Completed in {time.time() - _start:.1f}s -> {dataset_dir}")
     return dataset_dir
 
 
@@ -137,9 +141,13 @@ def convert_dicom_to_nifti(
     seg_map,
     only_original=True,
 ):
+    LOG.info(f"[convert_dicom_to_nifti] dicom_dir={dicom_dir}, img_save_path={img_save_path}, only_original={only_original}")
+    _start = time.time()
     with tempfile.TemporaryDirectory() as temp_dir:
         rt_file_path = get_rt_file_path(dicom_dir) if not only_original else None
+        LOG.info(f"[convert_dicom_to_nifti] rt_file_path={rt_file_path}")
         dicom_dir_immediate_parent = get_immediate_dicom_parent_dir(dicom_dir)
+        LOG.info(f"[convert_dicom_to_nifti] DICOM parent dir={dicom_dir_immediate_parent}")
         DicomConverters.convert_DICOM_to_Multi_NIFTI(
             rt_file_path,
             dicom_dir_immediate_parent,
@@ -152,6 +160,7 @@ def convert_dicom_to_nifti(
         )
         if not only_original:
             combine_masks_to_multilabel_file(temp_dir, seg_save_path, seg_map)
+    LOG.info(f"[convert_dicom_to_nifti] Completed in {time.time() - _start:.1f}s")
 
 
 def combine_masks_to_multilabel_file(masks_dir, output_nifti_path, seg_map):
@@ -184,6 +193,7 @@ def make_dataset_json_file(dataset_dir, seg_map, modality):
     samples = glob(normpath(f"{dataset_dir}/imagesTr/**.nii.gz"))
     train_samples = int(1 * len(samples))
     test_samples = len(samples) - train_samples
+    LOG.info(f"[make_dataset_json_file] dataset_dir={dataset_dir}, total_samples={len(samples)}, train={train_samples}, test={test_samples}")
 
     json_data = {
         # TODO: Get modality from DICOM image
@@ -199,8 +209,10 @@ def make_dataset_json_file(dataset_dir, seg_map, modality):
         "numTest": test_samples,
     }
 
-    with open(normpath(f"{dataset_dir}/dataset.json"), "w", encoding="utf-8") as f:
+    out_path = normpath(f"{dataset_dir}/dataset.json")
+    with open(out_path, "w", encoding="utf-8") as f:
         json.dump(json_data, f, ensure_ascii=False, indent=4)
+    LOG.info(f"[make_dataset_json_file] Written to {out_path}")
 
 
 def run_pre_processing(

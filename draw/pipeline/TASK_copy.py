@@ -35,7 +35,7 @@ def filter_files(path):
 from draw.utils.mapping import get_model_maps
 def getUpdated_PROTOCOL_TO_MODEL(data_path):
     NEW_ALL_SEG_MAP, NEW_PROTOCOL_TO_MODEL = get_model_maps(data_path)
-    print(NEW_PROTOCOL_TO_MODEL)
+    LOG.info(f"[getUpdated_PROTOCOL_TO_MODEL] Loaded protocol map: {NEW_PROTOCOL_TO_MODEL}")
     return NEW_PROTOCOL_TO_MODEL
 # @NewAuthor ends
 
@@ -125,9 +125,9 @@ def modification_event_trigger(src_path: str):
                 status=Status.INIT,
             )
             DBConnection.enqueue([dcm])
+            LOG.info(f"Enqueued series '{series_name}' with model '{model_name}' from {src_path}")
         else:
-            print(model_name)
-            LOG.warning(f"SRC {src_path} not processed as no Valid model found")
+            LOG.warning(f"SRC {src_path} not processed as no valid model found (model_name={model_name})")
 
     except IndexError:
         LOG.error(f"Probably Spurious Event from OS", exc_info=True)

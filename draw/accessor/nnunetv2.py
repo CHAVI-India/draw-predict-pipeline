@@ -1,6 +1,7 @@
 import os
 import subprocess
 import logging
+import time
 
 LOG = logging.getLogger(__name__)
 
@@ -156,32 +157,32 @@ class NNUNetV2Adapter:
 
     @staticmethod
     def _run_subprocess(run_args, env=None):
-        """Synchronous call to nnunet"""
+        """Synchronous call to nnunet, streaming stdout line-by-line so progress is logged in real time."""
         run_args = [str(i) for i in run_args]
         LOG.info(f"Running command: {' '.join(run_args)}")
-        
-        result = subprocess.run(
+        start = time.time()
+
+        process = subprocess.Popen(
             run_args,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            stdin=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
             text=True,
             env=env,
         )
-        
-        if result.stdout:
-            LOG.info(f"nnUNet output:\n{result.stdout}")
-        
-        if result.returncode != 0:
-            LOG.error(f"nnUNet command failed with exit code {result.returncode}")
-            LOG.error(f"Command: {' '.join(run_args)}")
-            if result.stdout:
-                LOG.error(f"Output:\n{result.stdout}")
+
+        for line in process.stdout:
+            LOG.info(f"[nnUNet] {line.rstrip()}")
+
+        process.wait()
+        elapsed = time.time() - start
+        LOG.info(f"Command finished in {elapsed:.1f}s with return code {process.returncode}: {' '.join(run_args)}")
+
+        if process.returncode != 0:
+            LOG.error(f"nnUNet command failed with exit code {process.returncode}")
             raise subprocess.CalledProcessError(
-                result.returncode, 
-                run_args, 
-                output=result.stdout,
-                stderr=None
+                process.returncode,
+                run_args,
             )
 
 
