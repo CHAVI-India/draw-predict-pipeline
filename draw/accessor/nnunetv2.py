@@ -162,13 +162,17 @@ class NNUNetV2Adapter:
         LOG.info(f"Running command: {' '.join(run_args)}")
         start = time.time()
 
+        child_env = dict(os.environ if env is None else env)
+        child_env["PYTHONUNBUFFERED"] = "1"
+
         process = subprocess.Popen(
             run_args,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
             text=True,
-            env=env,
+            bufsize=1,
+            env=child_env,
         )
 
         for line in process.stdout:
