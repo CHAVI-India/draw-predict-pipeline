@@ -220,19 +220,19 @@ else
 fi
 
 # Debug: Test SQLite directly
-log "Testing SQLite database creation directly..."
-sqlite3 /home/draw/pipeline/data/test.db "CREATE TABLE test (id INTEGER); DROP TABLE test;" && log "SQLite test successful" || log "SQLite test failed"
+# log "Testing SQLite database creation directly..."
+# sqlite3 /home/draw/pipeline/data/test.db "CREATE TABLE test (id INTEGER); DROP TABLE test;" && log "SQLite test successful" || log "SQLite test failed"
 
-echo "2025-09-22 17:10:19 [INFO] Testing SQLite database creation directly..."
-sqlite3 /home/draw/pipeline/data/draw.db.sqlite "CREATE TABLE IF NOT EXISTS test (id INTEGER);" && echo "2025-09-22 17:10:19 [INFO] SQLite test successful" || echo "2025-09-22 17:10:19 [ERROR] SQLite test failed"
+# echo "2025-09-22 17:10:19 [INFO] Testing SQLite database creation directly..."
+# sqlite3 /home/draw/pipeline/data/draw.db.sqlite "CREATE TABLE IF NOT EXISTS test (id INTEGER);" && echo "2025-09-22 17:10:19 [INFO] SQLite test successful" || echo "2025-09-22 17:10:19 [ERROR] SQLite test failed"
 
-echo "2025-09-22 17:10:19 [INFO] Testing SQLite journal file creation (transaction test)..."
-sqlite3 /home/draw/pipeline/data/draw.db.sqlite "BEGIN TRANSACTION; INSERT INTO test VALUES (1); COMMIT;" && echo "2025-09-22 17:10:19 [INFO] SQLite transaction test successful" || echo "2025-09-22 17:10:19 [ERROR] SQLite transaction test failed"
+# echo "2025-09-22 17:10:19 [INFO] Testing SQLite journal file creation (transaction test)..."
+# sqlite3 /home/draw/pipeline/data/draw.db.sqlite "BEGIN TRANSACTION; INSERT INTO test VALUES (1); COMMIT;" && echo "2025-09-22 17:10:19 [INFO] SQLite transaction test successful" || echo "2025-09-22 17:10:19 [ERROR] SQLite transaction test failed"
 
-echo "2025-09-22 17:10:19 [INFO] Checking for journal files after transaction..."
-ls -la /home/draw/pipeline/data/
+# echo "2025-09-22 17:10:19 [INFO] Checking for journal files after transaction..."
+# ls -la /home/draw/pipeline/data/
 
-rm -f /home/draw/pipeline/data/draw.db.sqlite*
+# rm -f /home/draw/pipeline/data/draw.db.sqlite*
 
 # Next we need to create the database using alembic
 # First check if alembic is available in the conda environment
@@ -321,8 +321,8 @@ log "Creating nnUNet results symlink..."
 mkdir -p /home/draw/pipeline/data
 
 # Debug: Check the contents of the data directory 
-log "Listing contents of data directory (/home/draw/pipeline/data):"
-ls -la /home/draw/pipeline/data
+# log "Listing contents of data directory (/home/draw/pipeline/data):"
+# ls -la /home/draw/pipeline/data
 
 # Remove any existing symlink or directory
 if [ -e "/home/draw/pipeline/data/nnUNet_results" ]; then
@@ -339,15 +339,15 @@ mkdir -p /home/draw/pipeline/data/nnUNet_preprocessed
 
 
 # Verify and log EFS mount directory contents
-if [ -d "/mnt/efs/nnUNet_results" ]; then
-    log "Listing contents of EFS mount directory (/mnt/efs/nnUNet_results):"
-    if ! ls -RS /mnt/efs/nnUNet_results 2>/dev/null; then
-        log "Warning: Failed to list EFS contents"
-    fi
-else
-    log "Error: EFS directory /mnt/efs/nnUNet_results does not exist"
-    exit 1
-fi
+# if [ -d "/mnt/efs/nnUNet_results" ]; then
+#     log "Listing contents of EFS mount directory (/mnt/efs/nnUNet_results):"
+#     if ! ls -RS /mnt/efs/nnUNet_results 2>/dev/null; then
+#         log "Warning: Failed to list EFS contents"
+#     fi
+# else
+#     log "Error: EFS directory /mnt/efs/nnUNet_results does not exist"
+#     exit 1
+# fi
 
 # Check EFS filesystem type and permissions
 df -Th /mnt/efs
@@ -355,20 +355,20 @@ ls -ld /mnt/efs /home/draw/pipeline/data
 mount | grep efs
 
 # Verify and log symlink directory contents
-if [ -L "/home/draw/pipeline/data/nnUNet_results" ]; then
-    log "Listing contents of symlink directory (/home/draw/pipeline/data/nnUNet_results):"
-    if ! ls -RS /home/draw/pipeline/data/nnUNet_results 2>/dev/null; then
-        log "Error: Failed to list symlink contents - check permissions or target"
-        exit 1
-    fi
-else
-    log "Error: Symlink /home/draw/pipeline/data/nnUNet_results does not exist or is not a symlink"
-    exit 1
-fi
+# if [ -L "/home/draw/pipeline/data/nnUNet_results" ]; then
+#     log "Listing contents of symlink directory (/home/draw/pipeline/data/nnUNet_results):"
+#     if ! ls -RS /home/draw/pipeline/data/nnUNet_results 2>/dev/null; then
+#         log "Error: Failed to list symlink contents - check permissions or target"
+#         exit 1
+#     fi
+# else
+#     log "Error: Symlink /home/draw/pipeline/data/nnUNet_results does not exist or is not a symlink"
+#     exit 1
+# fi
 
 # Verify the contents of the data directory
-log "Listing contents of data directory (/home/draw/pipeline/data):"
-ls -la /home/draw/pipeline/data
+# log "Listing contents of data directory (/home/draw/pipeline/data):"
+# ls -la /home/draw/pipeline/data
 
 #
 # Create necessary directories
