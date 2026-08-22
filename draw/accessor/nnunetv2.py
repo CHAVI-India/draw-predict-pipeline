@@ -1,9 +1,17 @@
 import os
+import select
+import signal
 import subprocess
 import logging
 import time
 
 LOG = logging.getLogger(__name__)
+
+# Maximum number of seconds with no stdout output before a subprocess is
+# considered hung and killed.  nnUNet normally prints progress at least every
+# few seconds during inference and export, so 10 minutes of total silence is a
+# safe threshold.  Configurable via env var.
+SUBPROCESS_INACTIVITY_TIMEOUT = int(os.environ.get("NNUNET_SUBPROCESS_INACTIVITY_TIMEOUT", "600"))
 
 
 class NNUNetV2Adapter:
@@ -152,12 +160,23 @@ class NNUNetV2Adapter:
             "cuda",
             "-tr",
             trainer_name,
+            "-npp",
+            "1",
+            "-nps",
+            "1",
         ]
         self._run_subprocess(run_args)
 
     @staticmethod
     def _run_subprocess(run_args, env=None):
-        """Synchronous call to nnunet, streaming stdout line-by-line so progress is logged in real time."""
+        """Synchronous call to nnunet, streaming stdout line-by-line so progress is logged in real time.
+
+        Includes an inactivity timeout: if the subprocess produces no stdout
+        output for ``SUBPROCESS_INACTIVITY_TIMEOUT`` seconds, it is killed and a
+        ``subprocess.TimeoutExpired`` is raised.  This prevents the pipeline
+        from hanging indefinitely when an nnUNet export worker is OOM-killed
+        and the parent process blocks on a dead result.
+        """
         run_args = [str(i) for i in run_args]
         LOG.info(f"Running command: {' '.join(run_args)}")
         start = time.time()
@@ -173,17 +192,77 @@ class NNUNetV2Adapter:
             text=True,
             bufsize=1,
             env=child_env,
+            # Start in a new process group so we can kill the entire tree
+            # (nnUNet spawns export worker subprocesses) on timeout.
+            start_new_session=True,
         )
 
-        for line in process.stdout:
-            LOG.info(f"[nnUNet] {line.rstrip()}")
+        last_output_time = time.time()
+        timeout_logged = False
+
+        while True:
+            # Use select with a 1-second timeout so we can check inactivity
+            # even when the process produces no output.
+            ready, _, _ = select.select([process.stdout], [], [], 1.0)
+
+            if ready:
+                line = process.stdout.readline()
+                if not line:
+                    # EOF — stdout pipe closed
+                    break
+                last_output_time = time.time()
+                timeout_logged = False
+                LOG.info(f"[nnUNet] {line.rstrip()}")
+
+            # Check inactivity timeout
+            idle_secs = time.time() - last_output_time
+            if idle_secs > SUBPROCESS_INACTIVITY_TIMEOUT:
+                if not timeout_logged:
+                    LOG.error(
+                        f"nnUNet subprocess hung (no stdout for {idle_secs:.0f}s, "
+                        f"timeout={SUBPROCESS_INACTIVITY_TIMEOUT}s), killing PID {process.pid}"
+                    )
+                    timeout_logged = True
+                # Kill the entire process group so child workers also die
+                try:
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    process.kill()
+                process.wait()
+                elapsed = time.time() - start
+                LOG.error(
+                    f"nnUNet subprocess killed after {elapsed:.1f}s due to inactivity timeout: {' '.join(run_args)}"
+                )
+                raise subprocess.TimeoutExpired(
+                    cmd=run_args,
+                    timeout=SUBPROCESS_INACTIVITY_TIMEOUT,
+                )
+
+            # Check if process exited (even if no output was produced)
+            if process.poll() is not None:
+                # Drain any remaining output
+                for line in process.stdout:
+                    LOG.info(f"[nnUNet] {line.rstrip()}")
+                break
 
         process.wait()
         elapsed = time.time() - start
         LOG.info(f"Command finished in {elapsed:.1f}s with return code {process.returncode}: {' '.join(run_args)}")
 
         if process.returncode != 0:
-            LOG.error(f"nnUNet command failed with exit code {process.returncode}")
+            # Signal-aware diagnostics (P1-12): negative return codes indicate
+            # the process was killed by a signal (e.g. SIGKILL from OOM killer)
+            if process.returncode < 0:
+                try:
+                    sig_name = signal.Signals(-process.returncode).name
+                except ValueError:
+                    sig_name = f"signal {-process.returncode}"
+                LOG.error(
+                    f"nnUNet command killed by {sig_name} (exit code {process.returncode}). "
+                    f"This often indicates an OOM kill by the OS/cgroup OOM killer."
+                )
+            else:
+                LOG.error(f"nnUNet command failed with exit code {process.returncode}")
             raise subprocess.CalledProcessError(
                 process.returncode,
                 run_args,

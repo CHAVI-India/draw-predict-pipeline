@@ -24,6 +24,7 @@ class Status(enum.Enum):
     STARTED = "STARTED"
     PREDICTED = "PREDICTED"
     SENT = "SENT"
+    FAILED = "FAILED"
 
 
 # Model = enum.Enum("Model", tuple(MODEL_CONFIG["KEYS"]))

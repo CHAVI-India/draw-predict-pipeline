@@ -1,5 +1,6 @@
 from itertools import cycle
 import time
+import traceback
 from typing import List
 import sqlite3
 import os
@@ -22,6 +23,22 @@ from retry.api import retry_call
 
 from draw.utils.ioutils import get_gpu_memory
 
+# Path to the failure sentinel file watched by entrypoint.sh.
+# When this file exists, the entrypoint exits immediately instead of
+# waiting for the full timeout.
+FAILURE_SENTINEL_PATH = "/home/draw/pipeline/output/FAILED"
+
+
+def _write_failure_sentinel(error_msg: str):
+    """Write a failure sentinel file so the entrypoint exits immediately."""
+    try:
+        os.makedirs(os.path.dirname(FAILURE_SENTINEL_PATH), exist_ok=True)
+        with open(FAILURE_SENTINEL_PATH, "w") as f:
+            f.write(f"Pipeline failure at {time.strftime('%Y-%m-%d %H:%M:%S')}:\n{error_msg}\n")
+        LOG.error(f"Failure sentinel written to {FAILURE_SENTINEL_PATH}")
+    except Exception as sentinel_err:
+        LOG.error(f"Could not write failure sentinel: {sentinel_err}")
+
 
 def send_to_external_server(pred_dcm_logs: List[DicomLog]):
     # dcm_output_dirs = [dcm.output_path for dcm in pred_dcm_logs]
@@ -38,12 +55,27 @@ def run_prediction(seg_model_name, data_path):
         time.sleep(PREDICTION_COOLDOWN_SECS)
         LOG.info(f"[run_prediction] Starting prediction for model '{seg_model_name}'")
         pred_start = time.time()
-        run_prediction_with_retry(seg_model_name, all_dcm_files, data_path)
-        LOG.info(f"[run_prediction] Prediction for model '{seg_model_name}' finished in {time.time() - pred_start:.1f}s")
-        pred_dcm_logs = DBConnection.top(seg_model_name, Status.PREDICTED)
-        LOG.info(f"[run_prediction] Got {len(pred_dcm_logs)} PREDICTED record(s) from DB")
-        send_to_external_server(pred_dcm_logs)
-        return True
+        try:
+            run_prediction_with_retry(seg_model_name, all_dcm_files, data_path)
+            LOG.info(f"[run_prediction] Prediction for model '{seg_model_name}' finished in {time.time() - pred_start:.1f}s")
+            pred_dcm_logs = DBConnection.top(seg_model_name, Status.PREDICTED)
+            LOG.info(f"[run_prediction] Got {len(pred_dcm_logs)} PREDICTED record(s) from DB")
+            send_to_external_server(pred_dcm_logs)
+            return True
+        except Exception as e:
+            elapsed = time.time() - pred_start
+            error_msg = f"Prediction failed for model '{seg_model_name}' after {elapsed:.1f}s: {type(e).__name__}: {e}"
+            LOG.error(f"[run_prediction] {error_msg}")
+            LOG.error(traceback.format_exc())
+            # Mark all dequeued records as FAILED so they don't stay in STARTED
+            for dcm in all_dcm_files:
+                try:
+                    DBConnection.mark_failed(dcm.series_name, str(e))
+                except Exception as mark_err:
+                    LOG.error(f"[run_prediction] Could not mark series '{dcm.series_name}' as FAILED: {mark_err}")
+            # Write failure sentinel so entrypoint exits immediately
+            _write_failure_sentinel(error_msg)
+            return False
     return False
 
 
@@ -130,8 +162,16 @@ def initiate_model_prediction(model_name, data_path):
         if not any_model_ran:
             LOG.info(f"[initiate_model_prediction] No prediction ran for model='{model_name}', sleeping {GPU_RECHECK_TIME_SECONDS}s")
             time.sleep(GPU_RECHECK_TIME_SECONDS)
-    except Exception:
-        LOG.error("[initiate_model_prediction] Exception caught", exc_info=True)
+    except Exception as e:
+        LOG.error(
+            f"[initiate_model_prediction] Exception caught for model='{model_name}', "
+            f"data_path='{data_path}': {type(e).__name__}: {e}",
+            exc_info=True,
+        )
+        # Write failure sentinel so entrypoint exits immediately
+        _write_failure_sentinel(
+            f"initiate_model_prediction failed for model='{model_name}': {type(e).__name__}: {e}"
+        )
 
 
 def task_model_prediction():

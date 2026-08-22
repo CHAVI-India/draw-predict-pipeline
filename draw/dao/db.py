@@ -134,3 +134,26 @@ class DBConnection:
             sess.execute(stmt)
             sess.commit()
         LOG.info(f"[update_record_by_series_name] DB update committed for series='{series_name}'")
+
+    @staticmethod
+    def mark_failed(series_name: str, error_msg: str = ""):
+        """Mark a series as FAILED in the database.
+
+        Used when prediction fails irrecoverably (e.g. OOM kill, subprocess
+        hang, or repeated inference errors).  Ensures the row does not remain
+        stranded in STARTED status.
+
+        Args:
+            series_name (str): Series Name of the record to mark failed
+            error_msg (str): Optional error message for logging
+        """
+        LOG.error(f"[mark_failed] series='{series_name}', error='{error_msg[:200]}'")
+        with Session(DB_ENGINE) as sess:
+            stmt = (
+                update(DicomLog)
+                .where(DicomLog.series_name == series_name)
+                .values(status=Status.FAILED)
+            )
+            sess.execute(stmt)
+            sess.commit()
+        LOG.info(f"[mark_failed] DB update committed: series='{series_name}' -> FAILED")

@@ -24,15 +24,59 @@ log_file_contents() {
 # Background memory monitor (RAM + GPU VRAM)
 # Writes periodic snapshots to a dedicated log and to stdout.
 MEMORY_LOG="/home/draw/pipeline/logs/memory_usage.log"
-MEMORY_MONITOR_INTERVAL="${MEMORY_MONITOR_INTERVAL:-30}"  # seconds, configurable via env var
+MEMORY_MONITOR_INTERVAL="${MEMORY_MONITOR_INTERVAL:-10}"  # seconds, configurable via env var
+
+# Read cgroup-aware memory usage.  In AWS Batch (ECS), the container's memory
+# limit is enforced via cgroups, not visible via ``free -m`` (which reports
+# host-level memory).  We read the cgroup memory.current / memory.usage_in_bytes
+# so the monitor reflects the actual container memory pressure that triggers
+# OOM kills.
+read_cgroup_memory() {
+    # cgroup v2 (newer ECS/Linux)
+    if [ -f /sys/fs/cgroup/memory.current ]; then
+        local used_bytes limit_bytes
+        used_bytes=$(cat /sys/fs/cgroup/memory.current 2>/dev/null || echo 0)
+        if [ -f /sys/fs/cgroup/memory.max ]; then
+            limit_bytes=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo 0)
+        fi
+        # memory.max can be "max" if no limit set
+        if [ "$limit_bytes" = "max" ] || [ -z "$limit_bytes" ] || [ "$limit_bytes" = "0" ]; then
+            printf "Used: %dMB  Limit: N/A" "$((used_bytes / 1048576))"
+        else
+            local pct
+            pct=$(awk -v u="$used_bytes" -v l="$limit_bytes" 'BEGIN{printf "%.1f", u/l*100}')
+            printf "Used: %dMB  Limit: %dMB  Usage: %s%%" "$((used_bytes / 1048576))" "$((limit_bytes / 1048576))" "$pct"
+        fi
+        return 0
+    fi
+
+    # cgroup v1 (older ECS/Linux)
+    if [ -f /sys/fs/cgroup/memory/memory.usage_in_bytes ]; then
+        local used_bytes limit_bytes
+        used_bytes=$(cat /sys/fs/cgroup/memory/memory.usage_in_bytes 2>/dev/null || echo 0)
+        limit_bytes=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || echo 0)
+        if [ -z "$limit_bytes" ] || [ "$limit_bytes" = "0" ] || [ "$limit_bytes" -ge 9223372036854771712 ]; then
+            printf "Used: %dMB  Limit: N/A" "$((used_bytes / 1048576))"
+        else
+            local pct
+            pct=$(awk -v u="$used_bytes" -v l="$limit_bytes" 'BEGIN{printf "%.1f", u/l*100}')
+            printf "Used: %dMB  Limit: %dMB  Usage: %s%%" "$((used_bytes / 1048576))" "$((limit_bytes / 1048576))" "$pct"
+        fi
+        return 0
+    fi
+
+    # Fallback: host-level free (less accurate for containers)
+    free -m | awk 'NR==2{printf "Used: %sMB  Total: %sMB (host-level, no cgroup)" $3, $2}'
+    return 1
+}
 
 monitor_memory() {
     mkdir -p "$(dirname "$MEMORY_LOG")"
     while true; do
         ts=$(date '+%Y-%m-%d %H:%M:%S')
 
-        # --- RAM ---
-        ram_info=$(free -m | awk 'NR==2{printf "Total: %sMB  Used: %sMB  Free: %sMB  Available: %sMB  Usage: %.1f%%", $2, $3, $4, $7, $3/$2*100}')
+        # --- RAM (cgroup-aware) ---
+        ram_info=$(read_cgroup_memory)
 
         # --- GPU VRAM ---
         if command -v nvidia-smi &> /dev/null; then
@@ -70,7 +114,7 @@ cleanup() {
     # Print memory usage summary before exiting
     if [ -f "$MEMORY_LOG" ]; then
         log "=== Memory Usage Summary ==="
-        log "Peak RAM usage during run:"
+        log "Peak RAM usage during run (cgroup-aware):"
         awk -F'Used: ' '/\[MEM\] RAM/{split($2,a,"MB"); if(a[1]+0 > max) max=a[1]+0} END{printf "  Peak RAM Used: %dMB\n", max}' "$MEMORY_LOG"
         log "Peak GPU VRAM usage during run:"
         awk -F'Used: ' '/\[MEM\] VRAM.*Used:/{split($2,a,"MB"); if(a[1]+0 > max) max=a[1]+0} END{printf "  Peak VRAM Used: %dMB\n", max}' "$MEMORY_LOG"
@@ -756,21 +800,41 @@ log "Database check completed successfully - series ready for processing"
 # Wait for the automatic segmentation to complete by checking for AUTOSEGMENT.RT.dcm
 log "Waiting for auto-segmentation to complete..."
 
+# Failure sentinel: the pipeline writes this file when it encounters a fatal
+# error, so the entrypoint can exit immediately instead of waiting for the
+# full timeout.
+FAILURE_SENTINEL="/home/draw/pipeline/output/FAILED"
+
 # Check if file already exists (search recursively in output directory)
 autosegment_file=$(find /home/draw/pipeline/output -name "AUTOSEGMENT.RT.dcm" -type f 2>/dev/null | head -n 1)
 if [ -n "$autosegment_file" ]; then
     log "Auto-segmentation file already exists at: $autosegment_file"
 else
-    # Use polling approach with proper 20-minute timeout
+    # Use polling approach with configurable timeout.
+    # Default: 3000s (50 min) — stays below Batch attemptDurationSeconds (3600s)
+    # while leaving margin for RTSTRUCT conversion after inference.
+    # Scale with DICOM file count: large series (>500 slices) take longer.
     auto_segment_file_found=false
     start_time=$(date +%s)
-    timeout_duration=2400  # 40 minutes
-    check_interval=1       # Check every 1 seconds
-    
-    log "Starting polling for auto-segmentation file with 20-minute timeout..."
+    timeout_duration="${SEGMENT_TIMEOUT_SECS:-3000}"
+    check_interval=5       # Check every 5 seconds
+
+    log "Starting polling for auto-segmentation file with ${timeout_duration}s timeout..."
     log "Searching recursively in /home/draw/pipeline/output for AUTOSEGMENT.RT.dcm"
-    
+    log "Also monitoring for failure sentinel: ${FAILURE_SENTINEL}"
+
     while [ $(($(date +%s) - start_time)) -lt $timeout_duration ]; do
+        # Check for failure sentinel first — exit immediately if pipeline failed
+        if [ -f "$FAILURE_SENTINEL" ]; then
+            elapsed_time=$(($(date +%s) - start_time))
+            log "ERROR: Failure sentinel detected after ${elapsed_time}s — pipeline reported a fatal error"
+            log "Contents of failure sentinel:"
+            cat "$FAILURE_SENTINEL" 2>/dev/null || log "(sentinel file empty or unreadable)"
+            log "Contents of the log file:"
+            log_file_contents /home/draw/pipeline/logs/logfile.log
+            exit 1
+        fi
+
         # Check if the file exists anywhere in the output directory
         autosegment_file=$(find /home/draw/pipeline/output -name "AUTOSEGMENT.RT.dcm" -type f 2>/dev/null | head -n 1)
         if [ -n "$autosegment_file" ]; then
@@ -779,34 +843,52 @@ else
             auto_segment_file_found=true
             break
         fi
-        
-        # Log progress every minute (12 checks * 5 seconds = 60 seconds)
+
+        # Log progress every minute
         checks_done=$(( ($(date +%s) - start_time) / check_interval ))
         if [ $((checks_done % 12)) -eq 0 ] && [ $checks_done -gt 0 ]; then
             elapsed_minutes=$(( ($(date +%s) - start_time) / 60 ))
             log "Auto-segmentation file not found yet, waiting... (${elapsed_minutes} minutes elapsed)"
         fi
-        
+
         # Sleep for the check interval
         sleep $check_interval
     done
-    
+
     if [ "$auto_segment_file_found" = false ]; then
-        log "Error: Auto-segmentation file not found after 20 minutes of waiting"
+        log "Error: Auto-segmentation file not found after ${timeout_duration}s of waiting"
         log "Contents of the log file:"
         log_file_contents /home/draw/pipeline/logs/logfile.log
 
-        log "Attempting to find and re-run the failed nnUNetv2_predict command..."
-        
-        # Extract the command from the log file
-        failed_command=$(grep -o "Command '\['nnUNetv2_predict'.*'\]' returned non-zero exit status 1" /home/draw/pipeline/logs/logfile.log | head -n 1)
+        log "Checking for failure indicators in log file..."
 
-        if [ -n "$failed_command" ]; then
-            log "Found failing command: $failed_command"
-            
-            # Clean up the command string for execution
-            # Use Python to reliably parse the command string, avoiding sed quoting issues.
-            executable_command=$(python3 -c "
+        # Broaden failure detection: look for CalledProcessError, TimeoutExpired,
+        # signal kills (negative return codes), and hung/killed subprocess messages.
+        # Do NOT blindly re-run the same command after a hang or OOM-kill —
+        # it will fail the same way.
+        timeout_hit=$(grep -c "TimeoutExpired\|inactivity timeout\|subprocess hung" /home/draw/pipeline/logs/logfile.log 2>/dev/null || echo 0)
+        oom_killed=$(grep -c "SIGKILL\|killed by signal\|OOM\|OutOfMemory" /home/draw/pipeline/logs/logfile.log 2>/dev/null || echo 0)
+        called_process_error=$(grep -c "CalledProcessError\|returned non-zero exit status" /home/draw/pipeline/logs/logfile.log 2>/dev/null || echo 0)
+
+        if [ "$timeout_hit" -gt 0 ]; then
+            log "FAILURE: nnUNet subprocess hung and was killed by inactivity timeout (${timeout_hit} occurrence(s))"
+            log "This typically indicates an OOM-killed export worker. Not retrying — would fail the same way."
+        elif [ "$oom_killed" -gt 0 ]; then
+            log "FAILURE: nnUNet subprocess was killed by signal (likely OOM) (${oom_killed} occurrence(s))"
+            log "Not retrying — would fail the same way due to memory pressure."
+        elif [ "$called_process_error" -gt 0 ]; then
+            log "FAILURE: nnUNet command returned non-zero exit status (${called_process_error} occurrence(s))"
+            log "Attempting to find and re-run the failed nnUNetv2_predict command..."
+
+            # Extract the command from the log file (only for CalledProcessError, not timeout/OOM)
+            failed_command=$(grep -o "Command '\['nnUNetv2_predict'.*'\]' returned non-zero exit status [0-9-]*" /home/draw/pipeline/logs/logfile.log | head -n 1)
+
+            if [ -n "$failed_command" ]; then
+                log "Found failing command: $failed_command"
+
+                # Clean up the command string for execution
+                # Use Python to reliably parse the command string, avoiding sed quoting issues.
+                executable_command=$(python3 -c "
 import sys
 import shlex
 
@@ -822,20 +904,25 @@ except Exception as e:
     print(f'Error parsing command: {e}', file=sys.stderr)
     exit(1)
 " <<< "$failed_command")
-            
-            log "Executing the command directly to see the error..."
-            
-            # Activate conda env and run
-            source ~/miniconda3/etc/profile.d/conda.sh && conda activate draw
-            
-            # Run the command
-            eval "$executable_command"
-            
-            log "Command execution finished. The error above is the direct output from the failed command."
+
+                log "Executing the command directly to see the error..."
+
+                # Activate conda env and run
+                source ~/miniconda3/etc/profile.d/conda.sh && conda activate draw
+
+                # Run the command
+                eval "$executable_command"
+
+                log "Command execution finished. The error above is the direct output from the failed command."
+            else
+                log "Could not find the failing nnUNetv2_predict command in the log file."
+            fi
         else
-            log "Could not find the failing nnUNetv2_predict command in the log file."
-            log "Contents of the dicomlog table for debugging:"
-            python3 -c "
+            log "FAILURE: No specific failure indicator found in log — pipeline may have hung without producing an error"
+        fi
+
+        log "Contents of the dicomlog table for debugging:"
+        python3 -c "
 import sqlite3
 import os
 
@@ -845,34 +932,33 @@ table_name = os.environ.get('TABLE_NAME', 'dicomlog')
 try:
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    
+
     # Get column names
     cursor.execute(f'PRAGMA table_info({table_name})')
     columns = [col[1] for col in cursor.fetchall()]
-    
+
     # Get all records from the table
     cursor.execute(f'SELECT * FROM {table_name}')
     rows = cursor.fetchall()
-    
+
     if not rows:
         print(f'No records found in {table_name} table')
     else:
         print(f'Found {len(rows)} records in {table_name} table:')
         print('Columns: ' + ', '.join(columns))
         print('-' * 80)
-        
+
         for i, row in enumerate(rows, 1):
             print(f'Record {i}:')
             for col, val in zip(columns, row):
                 print(f'  {col}: {val}')
             print('-' * 40)
-    
+
     conn.close()
-    
+
 except Exception as e:
     print(f'Error querying database: {e}')
 "
-        fi
         exit 1
     fi
 fi

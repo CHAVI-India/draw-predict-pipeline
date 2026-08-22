@@ -176,4 +176,8 @@ def convert_nifti_outputs_to_dicom(
         output_path=save_dir,
         status=Status.PREDICTED,
     )
+    LOG.info(
+        f"[convert_nifti_outputs_to_dicom] RTSTRUCT updated incrementally for dataset {dataset_id} "
+        f"with {len(seg_map)} structures. File: {save_dir}/{RT_DEFAULT_FILE_NAME}"
+    )
     return f"{final_output_dir}/{exp_number}"
