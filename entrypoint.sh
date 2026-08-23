@@ -800,98 +800,110 @@ log "Database check completed successfully - series ready for processing"
 
 
 
-# Wait for the automatic segmentation to complete by checking for AUTOSEGMENT.RT.dcm
+# Wait for the automatic segmentation to complete.
+#
+# IMPORTANT: We must wait for the COMPLETION sentinel, NOT the first
+# RTSTRUCT file.  The pipeline now streams NIfTI→RTSTRUCT per-dataset,
+# so the first AUTOSEGMENT.RT.dcm appears as soon as the FIRST dataset
+# finishes — but the remaining datasets are still running.  If we exit
+# on the first RTSTRUCT file, we kill the pipeline (via the cleanup trap)
+# before the other datasets have a chance to run.
+#
+# The pipeline writes /home/draw/pipeline/output/COMPLETED only after ALL
+# sub-datasets in the template have been processed (success or failure).
+# It writes /home/draw/pipeline/output/FAILED on a fatal error.
 log "Waiting for auto-segmentation to complete..."
 
 # Failure sentinel: the pipeline writes this file when it encounters a fatal
 # error, so the entrypoint can exit immediately instead of waiting for the
 # full timeout.
 FAILURE_SENTINEL="/home/draw/pipeline/output/FAILED"
+# Completion sentinel: the pipeline writes this file after ALL sub-datasets
+# have been processed (success or failure), so we know it is safe to upload.
+COMPLETION_SENTINEL="/home/draw/pipeline/output/COMPLETED"
 
-# Check if file already exists (search recursively in output directory)
-autosegment_file=$(find /home/draw/pipeline/output -name "AUTOSEGMENT.RT.dcm" -type f 2>/dev/null | head -n 1)
-if [ -n "$autosegment_file" ]; then
-    log "Auto-segmentation file already exists at: $autosegment_file"
-else
-    # Use polling approach with configurable timeout.
-    # Default: 3000s (50 min) — stays below Batch attemptDurationSeconds (3600s)
-    # while leaving margin for RTSTRUCT conversion after inference.
-    # Scale with DICOM file count: large series (>500 slices) take longer.
-    auto_segment_file_found=false
-    start_time=$(date +%s)
-    timeout_duration="${SEGMENT_TIMEOUT_SECS:-3000}"
-    check_interval=5       # Check every 5 seconds
+# Use polling approach with configurable timeout.
+# Default: 3000s (50 min) — stays below Batch attemptDurationSeconds (3600s)
+# while leaving margin for RTSTRUCT conversion after inference.
+auto_segment_complete=false
+start_time=$(date +%s)
+timeout_duration="${SEGMENT_TIMEOUT_SECS:-3000}"
+check_interval=5       # Check every 5 seconds
 
-    log "Starting polling for auto-segmentation file with ${timeout_duration}s timeout..."
-    log "Searching recursively in /home/draw/pipeline/output for AUTOSEGMENT.RT.dcm"
-    log "Also monitoring for failure sentinel: ${FAILURE_SENTINEL}"
+log "Starting polling for completion sentinel with ${timeout_duration}s timeout..."
+log "Waiting for: ${COMPLETION_SENTINEL}"
+log "Also monitoring for failure sentinel: ${FAILURE_SENTINEL}"
 
-    while [ $(($(date +%s) - start_time)) -lt $timeout_duration ]; do
-        # Check for failure sentinel first — exit immediately if pipeline failed
-        if [ -f "$FAILURE_SENTINEL" ]; then
-            elapsed_time=$(($(date +%s) - start_time))
-            log "ERROR: Failure sentinel detected after ${elapsed_time}s — pipeline reported a fatal error"
-            log "Contents of failure sentinel:"
-            cat "$FAILURE_SENTINEL" 2>/dev/null || log "(sentinel file empty or unreadable)"
-            log "Contents of the log file:"
-            log_file_contents /home/draw/pipeline/logs/logfile.log
-            exit 1
-        fi
-
-        # Check if the file exists anywhere in the output directory
-        autosegment_file=$(find /home/draw/pipeline/output -name "AUTOSEGMENT.RT.dcm" -type f 2>/dev/null | head -n 1)
-        if [ -n "$autosegment_file" ]; then
-            elapsed_time=$(($(date +%s) - start_time))
-            log "Auto-segmentation file found after ${elapsed_time} seconds at: $autosegment_file"
-            auto_segment_file_found=true
-            break
-        fi
-
-        # Log progress every minute
-        checks_done=$(( ($(date +%s) - start_time) / check_interval ))
-        if [ $((checks_done % 12)) -eq 0 ] && [ $checks_done -gt 0 ]; then
-            elapsed_minutes=$(( ($(date +%s) - start_time) / 60 ))
-            log "Auto-segmentation file not found yet, waiting... (${elapsed_minutes} minutes elapsed)"
-        fi
-
-        # Sleep for the check interval
-        sleep $check_interval
-    done
-
-    if [ "$auto_segment_file_found" = false ]; then
-        log "Error: Auto-segmentation file not found after ${timeout_duration}s of waiting"
+while [ $(($(date +%s) - start_time)) -lt $timeout_duration ]; do
+    # Check for failure sentinel first — exit immediately if pipeline failed
+    if [ -f "$FAILURE_SENTINEL" ]; then
+        elapsed_time=$(($(date +%s) - start_time))
+        log "ERROR: Failure sentinel detected after ${elapsed_time}s — pipeline reported a fatal error"
+        log "Contents of failure sentinel:"
+        cat "$FAILURE_SENTINEL" 2>/dev/null || log "(sentinel file empty or unreadable)"
         log "Contents of the log file:"
         log_file_contents /home/draw/pipeline/logs/logfile.log
+        exit 1
+    fi
 
-        log "Checking for failure indicators in log file..."
+    # Check for completion sentinel — all datasets are done
+    if [ -f "$COMPLETION_SENTINEL" ]; then
+        elapsed_time=$(($(date +%s) - start_time))
+        log "Completion sentinel found after ${elapsed_time} seconds"
+        log "Contents of completion sentinel:"
+        cat "$COMPLETION_SENTINEL" 2>/dev/null || log "(sentinel file empty or unreadable)"
+        auto_segment_complete=true
+        break
+    fi
 
-        # Broaden failure detection: look for CalledProcessError, TimeoutExpired,
-        # signal kills (negative return codes), and hung/killed subprocess messages.
-        # Do NOT blindly re-run the same command after a hang or OOM-kill —
-        # it will fail the same way.
-        timeout_hit=$(grep -c "TimeoutExpired\|inactivity timeout\|subprocess hung" /home/draw/pipeline/logs/logfile.log 2>/dev/null || echo 0)
-        oom_killed=$(grep -c "SIGKILL\|killed by signal\|OOM\|OutOfMemory" /home/draw/pipeline/logs/logfile.log 2>/dev/null || echo 0)
-        called_process_error=$(grep -c "CalledProcessError\|returned non-zero exit status" /home/draw/pipeline/logs/logfile.log 2>/dev/null || echo 0)
+    # Log progress every minute
+    checks_done=$(( ($(date +%s) - start_time) / check_interval ))
+    if [ $((checks_done % 12)) -eq 0 ] && [ $checks_done -gt 0 ]; then
+        elapsed_minutes=$(( ($(date +%s) - start_time) / 60 ))
+        log "Completion sentinel not found yet, waiting... (${elapsed_minutes} minutes elapsed)"
+        # Log how many RTSTRUCT files have been produced so far (progress indicator)
+        rt_count=$(find /home/draw/pipeline/output -name "AUTOSEGMENT.RT.dcm" -type f 2>/dev/null | wc -l)
+        log "  RTSTRUCT files produced so far: ${rt_count}"
+    fi
 
-        if [ "$timeout_hit" -gt 0 ]; then
-            log "FAILURE: nnUNet subprocess hung and was killed by inactivity timeout (${timeout_hit} occurrence(s))"
-            log "This typically indicates an OOM-killed export worker. Not retrying — would fail the same way."
-        elif [ "$oom_killed" -gt 0 ]; then
-            log "FAILURE: nnUNet subprocess was killed by signal (likely OOM) (${oom_killed} occurrence(s))"
-            log "Not retrying — would fail the same way due to memory pressure."
-        elif [ "$called_process_error" -gt 0 ]; then
-            log "FAILURE: nnUNet command returned non-zero exit status (${called_process_error} occurrence(s))"
-            log "Attempting to find and re-run the failed nnUNetv2_predict command..."
+    # Sleep for the check interval
+    sleep $check_interval
+done
 
-            # Extract the command from the log file (only for CalledProcessError, not timeout/OOM)
-            failed_command=$(grep -o "Command '\['nnUNetv2_predict'.*'\]' returned non-zero exit status [0-9-]*" /home/draw/pipeline/logs/logfile.log | head -n 1)
+if [ "$auto_segment_complete" = false ]; then
+    log "Error: Completion sentinel not found after ${timeout_duration}s of waiting"
+    log "Contents of the log file:"
+    log_file_contents /home/draw/pipeline/logs/logfile.log
 
-            if [ -n "$failed_command" ]; then
-                log "Found failing command: $failed_command"
+    log "Checking for failure indicators in log file..."
 
-                # Clean up the command string for execution
-                # Use Python to reliably parse the command string, avoiding sed quoting issues.
-                executable_command=$(python3 -c "
+    # Broaden failure detection: look for CalledProcessError, TimeoutExpired,
+    # signal kills (negative return codes), and hung/killed subprocess messages.
+    # Do NOT blindly re-run the same command after a hang or OOM-kill —
+    # it will fail the same way.
+    timeout_hit=$(grep -c "TimeoutExpired\|inactivity timeout\|subprocess hung" /home/draw/pipeline/logs/logfile.log 2>/dev/null || echo 0)
+    oom_killed=$(grep -c "SIGKILL\|killed by signal\|OOM\|OutOfMemory" /home/draw/pipeline/logs/logfile.log 2>/dev/null || echo 0)
+    called_process_error=$(grep -c "CalledProcessError\|returned non-zero exit status" /home/draw/pipeline/logs/logfile.log 2>/dev/null || echo 0)
+
+    if [ "$timeout_hit" -gt 0 ]; then
+        log "FAILURE: nnUNet subprocess hung and was killed by inactivity timeout (${timeout_hit} occurrence(s))"
+        log "This typically indicates an OOM-killed export worker. Not retrying — would fail the same way."
+    elif [ "$oom_killed" -gt 0 ]; then
+        log "FAILURE: nnUNet subprocess was killed by signal (likely OOM) (${oom_killed} occurrence(s))"
+        log "Not retrying — would fail the same way due to memory pressure."
+    elif [ "$called_process_error" -gt 0 ]; then
+        log "FAILURE: nnUNet command returned non-zero exit status (${called_process_error} occurrence(s))"
+        log "Attempting to find and re-run the failed nnUNetv2_predict command..."
+
+        # Extract the command from the log file (only for CalledProcessError, not timeout/OOM)
+        failed_command=$(grep -o "Command '\['nnUNetv2_predict'.*'\]' returned non-zero exit status [0-9-]*" /home/draw/pipeline/logs/logfile.log | head -n 1)
+
+        if [ -n "$failed_command" ]; then
+            log "Found failing command: $failed_command"
+
+            # Clean up the command string for execution
+            # Use Python to reliably parse the command string, avoiding sed quoting issues.
+            executable_command=$(python3 -c "
 import sys
 import shlex
 
@@ -908,24 +920,24 @@ except Exception as e:
     exit(1)
 " <<< "$failed_command")
 
-                log "Executing the command directly to see the error..."
+            log "Executing the command directly to see the error..."
 
-                # Activate conda env and run
-                source ~/miniconda3/etc/profile.d/conda.sh && conda activate draw
+            # Activate conda env and run
+            source ~/miniconda3/etc/profile.d/conda.sh && conda activate draw
 
-                # Run the command
-                eval "$executable_command"
+            # Run the command
+            eval "$executable_command"
 
-                log "Command execution finished. The error above is the direct output from the failed command."
-            else
-                log "Could not find the failing nnUNetv2_predict command in the log file."
-            fi
+            log "Command execution finished. The error above is the direct output from the failed command."
         else
-            log "FAILURE: No specific failure indicator found in log — pipeline may have hung without producing an error"
+            log "Could not find the failing nnUNetv2_predict command in the log file."
         fi
+    else
+        log "FAILURE: No specific failure indicator found in log — pipeline may have hung without producing an error"
+    fi
 
-        log "Contents of the dicomlog table for debugging:"
-        python3 -c "
+    log "Contents of the dicomlog table for debugging:"
+    python3 -c "
 import sqlite3
 import os
 
@@ -962,20 +974,35 @@ try:
 except Exception as e:
     print(f'Error querying database: {e}')
 "
-        exit 1
-    fi
+    exit 1
 fi
 
-# Find the actual autosegmentation file path (in case it wasn't found during the polling above)
+# Now that the pipeline has completed all datasets, find the RTSTRUCT file(s).
+# There may be multiple if the template has multiple sub-datasets that each
+# produced their own RTSTRUCT.  We pick the most recently modified one.
+log "Pipeline completed. Searching for AUTOSEGMENT.RT.dcm files..."
+autosegment_file=$(find /home/draw/pipeline/output -name "AUTOSEGMENT.RT.dcm" -type f 2>/dev/null | head -n 1)
+
 if [ -z "$autosegment_file" ]; then
-    autosegment_file=$(find /home/draw/pipeline/output -name "AUTOSEGMENT.RT.dcm" -type f 2>/dev/null | head -n 1)
+    log "Error: No AUTOSEGMENT.RT.dcm file found after pipeline completion"
+    log "This may indicate all datasets failed to produce RTSTRUCT output"
+    log "Contents of the log file:"
+    log_file_contents /home/draw/pipeline/logs/logfile.log
+    exit 1
 fi
 
-# Wait for file size to stabilize over 30 seconds before proceeding
+log "Found RTSTRUCT file at: $autosegment_file"
+rt_count=$(find /home/draw/pipeline/output -name "AUTOSEGMENT.RT.dcm" -type f 2>/dev/null | wc -l)
+log "Total RTSTRUCT files found: ${rt_count}"
+
+# Wait for file size to stabilize before proceeding.
+# Since we now wait for the completion sentinel, the RTSTRUCT file should
+# already be complete.  This short stability check is just a safety net
+# for filesystem buffering delays.
 log "Checking file size stability for: $autosegment_file"
-stable_duration=30        # File size must remain stable for 30 seconds
-stability_check_interval=1 # Check every 1 seconds
-stability_timeout=600      # Give up after 10 minutes
+stable_duration=5         # File size must remain stable for 5 seconds
+stability_check_interval=1 # Check every 1 second
+stability_timeout=60       # Give up after 1 minute
 stable_since=$(date +%s)
 last_size=$(stat -c%s "$autosegment_file" 2>/dev/null || echo 0)
 stability_start=$(date +%s)

@@ -26,6 +26,31 @@ from draw.utils.nifti2rt import convert_nifti_outputs_to_dicom
 
 
 from draw.utils.mapping import get_model_maps
+
+# Path to the completion sentinel watched by entrypoint.sh.
+# The pipeline writes this file ONLY after all sub-datasets in a template
+# have been processed (success or failure).  The entrypoint must wait for
+# this sentinel rather than the first RTSTRUCT file, otherwise it will
+# upload the first dataset's partial result and kill the pipeline before
+# the remaining datasets have a chance to run.
+COMPLETION_SENTINEL_PATH = "/home/draw/pipeline/output/COMPLETED"
+
+
+def _write_completion_sentinel(successful: int, failed: int):
+    """Write a completion sentinel so the entrypoint knows all datasets are done."""
+    try:
+        os.makedirs(os.path.dirname(COMPLETION_SENTINEL_PATH), exist_ok=True)
+        with open(COMPLETION_SENTINEL_PATH, "w") as f:
+            f.write(
+                f"Pipeline completed at {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"Successful datasets: {successful}\n"
+                f"Failed datasets: {failed}\n"
+            )
+        LOG.info(f"Completion sentinel written to {COMPLETION_SENTINEL_PATH}")
+    except Exception as sentinel_err:
+        LOG.error(f"Could not write completion sentinel: {sentinel_err}")
+
+
 def getUpdated_ALL_SEG_MAP(data_path):
     NEW_ALL_SEG_MAP, NEW_PROTOCOL_TO_MODEL = get_model_maps(data_path)
     return NEW_ALL_SEG_MAP
@@ -152,10 +177,21 @@ def folder_predict(dcm_logs: List[DicomLog], preds_dir, dataset_name, data_path,
 
     if not successful_datasets:
         LOG.error("All datasets failed — no RTSTRUCT will be generated")
+        # Do NOT write the completion sentinel here.  The exception will
+        # propagate to run_prediction() in TASK_predict.py, which writes
+        # the FAILURE sentinel.  Writing COMPLETED here would cause the
+        # entrypoint to exit before retry_call gets a chance to retry.
         raise RuntimeError(
             f"All {len(task_map)} sub-datasets failed for model '{dataset_name}'. "
             f"Failed: {[(did, ds_name) for did, ds_name, _, _ in failed_datasets]}"
         )
+
+    # Write completion sentinel so the entrypoint knows all datasets are
+    # done and can proceed to upload the (possibly partial) RTSTRUCT.
+    _write_completion_sentinel(
+        successful=len(successful_datasets),
+        failed=len(failed_datasets),
+    )
 
     LOG.info(f"Prediction Complete for {dataset_name}")
 
