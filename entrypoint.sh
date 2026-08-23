@@ -856,14 +856,46 @@ while [ $(($(date +%s) - start_time)) -lt $timeout_duration ]; do
         break
     fi
 
-    # Log progress every minute
+    # Log progress every minute by parsing the pipeline log for per-dataset status
     checks_done=$(( ($(date +%s) - start_time) / check_interval ))
     if [ $((checks_done % 12)) -eq 0 ] && [ $checks_done -gt 0 ]; then
         elapsed_minutes=$(( ($(date +%s) - start_time) / 60 ))
         log "Completion sentinel not found yet, waiting... (${elapsed_minutes} minutes elapsed)"
-        # Log how many RTSTRUCT files have been produced so far (progress indicator)
-        rt_count=$(find /home/draw/pipeline/output -name "AUTOSEGMENT.RT.dcm" -type f 2>/dev/null | wc -l)
-        log "  RTSTRUCT files produced so far: ${rt_count}"
+
+        # Parse pipeline log for per-dataset progress.
+        # Markers (from predict.py):
+        #   "[dataset_id=NNN] Starting prediction"      → started
+        #   "[dataset_id=NNN] Prediction succeeded"      → done (ok)
+        #   "[dataset_id=NNN] Prediction FAILED"         → done (failed)
+        pipeline_log="/home/draw/pipeline/logs/logfile.log"
+        if [ -f "$pipeline_log" ]; then
+            started=$(grep -c "Starting prediction" "$pipeline_log" 2>/dev/null || echo 0)
+            succeeded=$(grep -c "Prediction succeeded" "$pipeline_log" 2>/dev/null || echo 0)
+            failed=$(grep -c "Prediction FAILED" "$pipeline_log" 2>/dev/null || echo 0)
+            log "  Dataset progress: ${succeeded} succeeded, ${failed} failed, ${started} started"
+
+            # Show which datasets have completed (succeeded or failed)
+            completed_ids=$(grep -oE "\[dataset_id=[0-9]+\] Prediction (succeeded|FAILED)" "$pipeline_log" 2>/dev/null | \
+                            grep -oE "dataset_id=[0-9]+" | sort -u | tr '\n' ' ')
+            if [ -n "$completed_ids" ]; then
+                log "  Completed datasets: ${completed_ids}"
+            fi
+
+            # Show which dataset is currently running (started but not yet succeeded/failed)
+            # We find the last "Starting prediction" line and check if it has a matching completion
+            last_started=$(grep -oE "\[dataset_id=[0-9]+\] Starting prediction" "$pipeline_log" 2>/dev/null | \
+                           grep -oE "dataset_id=[0-9]+" | tail -1)
+            if [ -n "$last_started" ]; then
+                ds_num=$(echo "$last_started" | grep -oE "[0-9]+")
+                # Check if this dataset has a completion line
+                has_completion=$(grep -c "\[dataset_id=${ds_num}\] Prediction (succeeded|FAILED)" "$pipeline_log" 2>/dev/null || echo 0)
+                if [ "$has_completion" -eq 0 ]; then
+                    log "  Currently running: dataset ${ds_num}"
+                fi
+            fi
+        else
+            log "  (pipeline log not found at ${pipeline_log})"
+        fi
     fi
 
     # Sleep for the check interval
