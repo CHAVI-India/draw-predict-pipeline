@@ -440,9 +440,12 @@ export base_directory="/home/draw/pipeline/data" # Added to allow proper postpro
 export nnUNet_raw="/home/draw/pipeline/data/nnUNet_raw"
 export nnUNet_preprocessed="/home/draw/pipeline/data/nnUNet_preprocessed"
 export nnUNet_results="/home/draw/pipeline/data/nnUNet_results"
+# Point nnUNet to custom DRAW trainers in the pipeline repo
+export nnUNet_extTrainer="/home/draw/pipeline/draw/nnunet_trainers"
 log "nnUNet_raw: ${nnUNet_raw}"
 log "nnUNet_preprocessed: ${nnUNet_preprocessed}"
 log "nnUNet_results: ${nnUNet_results}"
+log "nnUNet_extTrainer: ${nnUNet_extTrainer}"
 
 # Start the pipeline directly in background
 log "Starting the pipeline directly in background..."

@@ -1,5 +1,6 @@
-# Use official NVIDIA CUDA runtime with Ubuntu 20.04 and cuDNN
-FROM nvcr.io/nvidia/cuda:11.6.1-cudnn8-devel-ubuntu20.04
+# Use NVIDIA CUDA 12.6 with cuDNN on Ubuntu 22.04
+# Compatible with NVIDIA driver >=525 (AWS Batch g4dn T4 GPUs)
+FROM nvcr.io/nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04
 
 # Arguments for user/group IDs
 ARG UID=1000
@@ -85,7 +86,9 @@ RUN set -e && \
 ENV PATH=$CONDA_DIR/envs/draw/bin:$PATH \
     CONDA_DEFAULT_ENV=draw \
     CONDA_PREFIX=$CONDA_DIR/envs/draw \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    # Point nnUNet to custom DRAW trainers in the pipeline repo
+    nnUNet_extTrainer=$APP_HOME/pipeline/draw/nnunet_trainers
 
 # Switch to root to handle entrypoint script
 USER root

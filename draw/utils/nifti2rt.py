@@ -113,15 +113,15 @@ def add_to_output_csv(dataset_id: int, summaries: list[dict], splits, save_path)
             _, series_id = get_dcm_root(dataset_id, s_no)
 
             sample_summary = get_sample_summary(s_no, summaries)
-            df_op = df_op._append(
-                {
+            row = pd.DataFrame(
+                [{
                     "DICOMId": series_id,
                     "NNUNetSampleNo": s_no,
                     "Split": sample_splits[s_no],
                     **sample_summary,
-                },
-                ignore_index=True,
+                }]
             )
+            df_op = pd.concat([df_op, row], ignore_index=True)
 
     df_op.to_csv(f"{save_path}/dice.csv", index=False)
 
