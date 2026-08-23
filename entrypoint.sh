@@ -122,9 +122,31 @@ cleanup() {
         log "=== End Memory Summary ==="
     fi
 
+    # Append the full pipeline log so it is captured in CloudWatch / AWS
+    # Batch logs regardless of whether the run succeeded or failed.
+    # This runs on every exit (trap), so the complete pipeline log is
+    # always available in the container's stdout.
+    local pipeline_logfile="/home/draw/pipeline/logs/logfile.log"
+    if [ -f "$pipeline_logfile" ]; then
+        log "=== Full Pipeline Log (logfile.log) ==="
+        log_file_contents "$pipeline_logfile"
+        log "=== End Pipeline Log ==="
+    else
+        log "Pipeline log file not found at $pipeline_logfile"
+    fi
+
+    # Also append the raw nohup output log (captures anything written to
+    # stderr/stdout before the logging framework initializes).
+    local pipeline_output_log="/home/draw/pipeline/logs/pipeline_output.log"
+    if [ -f "$pipeline_output_log" ]; then
+        log "=== Pipeline Output Log (pipeline_output.log) ==="
+        log_file_contents "$pipeline_output_log"
+        log "=== End Pipeline Output Log ==="
+    fi
+
     # Kill any remaining background processes
     pkill -P $$ || true
-    
+
     log "Cleanup complete. Exiting with code $exit_code"
     exit $exit_code
 }
@@ -867,30 +889,45 @@ while [ $(($(date +%s) - start_time)) -lt $timeout_duration ]; do
         #   "[dataset_id=NNN] Starting prediction"      → started
         #   "[dataset_id=NNN] Prediction succeeded"      → done (ok)
         #   "[dataset_id=NNN] Prediction FAILED"         → done (failed)
+        #
+        # IMPORTANT: grep -c prints "0" AND exits 1 when there are 0 matches.
+        # With `set -e` + `set -o pipefail`, an unhandled grep exit 1 kills the
+        # script.  We use `|| true` on all grep pipelines and strip whitespace
+        # from the counts to avoid "0\n0" from `|| echo 0`.
         pipeline_log="/home/draw/pipeline/logs/logfile.log"
         if [ -f "$pipeline_log" ]; then
-            started=$(grep -c "Starting prediction" "$pipeline_log" 2>/dev/null || echo 0)
-            succeeded=$(grep -c "Prediction succeeded" "$pipeline_log" 2>/dev/null || echo 0)
-            failed=$(grep -c "Prediction FAILED" "$pipeline_log" 2>/dev/null || echo 0)
+            started=$(grep -c "Starting prediction" "$pipeline_log" 2>/dev/null || true)
+            succeeded=$(grep -c "Prediction succeeded" "$pipeline_log" 2>/dev/null || true)
+            failed=$(grep -c "Prediction FAILED" "$pipeline_log" 2>/dev/null || true)
+            # Default to 0 if grep produced empty output
+            started=${started:-0}
+            succeeded=${succeeded:-0}
+            failed=${failed:-0}
+            # Strip any stray whitespace/newlines
+            started=$(echo "$started" | tr -d '[:space:]')
+            succeeded=$(echo "$succeeded" | tr -d '[:space:]')
+            failed=$(echo "$failed" | tr -d '[:space:]')
             log "  Dataset progress: ${succeeded} succeeded, ${failed} failed, ${started} started"
 
             # Show which datasets have completed (succeeded or failed)
             completed_ids=$(grep -oE "\[dataset_id=[0-9]+\] Prediction (succeeded|FAILED)" "$pipeline_log" 2>/dev/null | \
-                            grep -oE "dataset_id=[0-9]+" | sort -u | tr '\n' ' ')
+                            grep -oE "dataset_id=[0-9]+" | sort -u | tr '\n' ' ' || true)
             if [ -n "$completed_ids" ]; then
                 log "  Completed datasets: ${completed_ids}"
             fi
 
             # Show which dataset is currently running (started but not yet succeeded/failed)
-            # We find the last "Starting prediction" line and check if it has a matching completion
             last_started=$(grep -oE "\[dataset_id=[0-9]+\] Starting prediction" "$pipeline_log" 2>/dev/null | \
-                           grep -oE "dataset_id=[0-9]+" | tail -1)
+                           grep -oE "dataset_id=[0-9]+" | tail -1 || true)
             if [ -n "$last_started" ]; then
-                ds_num=$(echo "$last_started" | grep -oE "[0-9]+")
-                # Check if this dataset has a completion line
-                has_completion=$(grep -c "\[dataset_id=${ds_num}\] Prediction (succeeded|FAILED)" "$pipeline_log" 2>/dev/null || echo 0)
-                if [ "$has_completion" -eq 0 ]; then
-                    log "  Currently running: dataset ${ds_num}"
+                ds_num=$(echo "$last_started" | grep -oE "[0-9]+" || true)
+                if [ -n "$ds_num" ]; then
+                    has_completion=$(grep -c "\[dataset_id=${ds_num}\] Prediction" "$pipeline_log" 2>/dev/null || true)
+                    has_completion=${has_completion:-0}
+                    has_completion=$(echo "$has_completion" | tr -d '[:space:]')
+                    if [ "$has_completion" -eq 0 ] 2>/dev/null; then
+                        log "  Currently running: dataset ${ds_num}"
+                    fi
                 fi
             fi
         else
@@ -913,9 +950,12 @@ if [ "$auto_segment_complete" = false ]; then
     # signal kills (negative return codes), and hung/killed subprocess messages.
     # Do NOT blindly re-run the same command after a hang or OOM-kill —
     # it will fail the same way.
-    timeout_hit=$(grep -c "TimeoutExpired\|inactivity timeout\|subprocess hung" /home/draw/pipeline/logs/logfile.log 2>/dev/null || echo 0)
-    oom_killed=$(grep -c "SIGKILL\|killed by signal\|OOM\|OutOfMemory" /home/draw/pipeline/logs/logfile.log 2>/dev/null || echo 0)
-    called_process_error=$(grep -c "CalledProcessError\|returned non-zero exit status" /home/draw/pipeline/logs/logfile.log 2>/dev/null || echo 0)
+    timeout_hit=$(grep -c "TimeoutExpired\|inactivity timeout\|subprocess hung" /home/draw/pipeline/logs/logfile.log 2>/dev/null || true)
+    oom_killed=$(grep -c "SIGKILL\|killed by signal\|OOM\|OutOfMemory" /home/draw/pipeline/logs/logfile.log 2>/dev/null || true)
+    called_process_error=$(grep -c "CalledProcessError\|returned non-zero exit status" /home/draw/pipeline/logs/logfile.log 2>/dev/null || true)
+    timeout_hit=${timeout_hit:-0}; timeout_hit=$(echo "$timeout_hit" | tr -d '[:space:]')
+    oom_killed=${oom_killed:-0}; oom_killed=$(echo "$oom_killed" | tr -d '[:space:]')
+    called_process_error=${called_process_error:-0}; called_process_error=$(echo "$called_process_error" | tr -d '[:space:]')
 
     if [ "$timeout_hit" -gt 0 ]; then
         log "FAILURE: nnUNet subprocess hung and was killed by inactivity timeout (${timeout_hit} occurrence(s))"
@@ -928,7 +968,7 @@ if [ "$auto_segment_complete" = false ]; then
         log "Attempting to find and re-run the failed nnUNetv2_predict command..."
 
         # Extract the command from the log file (only for CalledProcessError, not timeout/OOM)
-        failed_command=$(grep -o "Command '\['nnUNetv2_predict'.*'\]' returned non-zero exit status [0-9-]*" /home/draw/pipeline/logs/logfile.log | head -n 1)
+        failed_command=$(grep -o "Command '\['nnUNetv2_predict'.*'\]' returned non-zero exit status [0-9-]*" /home/draw/pipeline/logs/logfile.log 2>/dev/null | head -n 1 || true)
 
         if [ -n "$failed_command" ]; then
             log "Found failing command: $failed_command"
@@ -1092,10 +1132,9 @@ fi
 
 log "Auto-segmentation completed successfully"
 log "Result available at: ${s3_output_path}"
-log "Final pipeline log:"
-if [ -f /home/draw/pipeline/logs/pipeline.log ]; then
-    log_file_contents /home/draw/pipeline/logs/pipeline.log
-fi
+
+# The full pipeline log is appended by the cleanup() function on exit,
+# so no need to dump it here.
 
 # Exit with success
 exit 0
