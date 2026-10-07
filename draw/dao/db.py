@@ -48,10 +48,8 @@ class DBConnection:
             bool: If the series_name exists in the DB or not
         """
         with Session(DB_ENGINE) as sess:
-            exists_query = sess.query(
-                exists().where(DicomLog.series_name == series_name)
-            )
-            return sess.execute(exists_query).scalar()
+            stmt = select(exists().where(DicomLog.series_name == series_name))
+            return bool(sess.execute(stmt).scalar())
 
     @staticmethod
     def top(model: str, status: Status) -> List[DicomLog]:
